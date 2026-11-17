@@ -31,6 +31,7 @@
   .bar { flex:1; height:8px; background:#0f172a; border-radius:6px; overflow:hidden; }
   .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width .1s; }
   #meters { margin-bottom:14px; }
+  select { width:100%; padding:14px; border-radius:14px; border:1px solid #334155; background:#0f172a; color:var(--txt); font-size:15px; margin-bottom:6px; }
   #stage { position:fixed; inset:0; z-index:50; background:radial-gradient(circle at 50% 30%, #1e3a5f 0%, #020617 70%); overflow:hidden; }
   #stage video { background:#000; }
   #rvid { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; }
@@ -66,23 +67,33 @@
 
   <!-- HOST: create link -->
   <div id="vCreate" class="hide">
+    <select id="selMode">
+      <option value="reuse">Reusable link (until I disable it)</option>
+      <option value="once">One-time link (dies after one call)</option>
+      <option value="1h">Expires in 1 hour</option>
+      <option value="24h">Expires in 24 hours</option>
+      <option value="7d">Expires in 7 days</option>
+    </select>
     <button class="go" id="btnCreate">Create call link</button>
   </div>
 
   <!-- HOST: waiting with link -->
   <div id="vShare" class="hide">
+    <button class="go hide" id="btnAlerts">🔔 Tap once to enable ring sound &amp; alerts</button>
     <div class="link" id="linkBox"></div>
+    <div class="note" id="modeNote" style="margin-top:4px"></div>
     <div class="row">
       <button class="sec" id="btnCopy">Copy</button>
       <button class="wa" id="btnWA">WhatsApp</button>
     </div>
-    <button class="sec" id="btnNew">New link</button>
+    <button class="end" id="btnDisable">Disable link</button>
     <div class="note">Open this page to receive calls. For alerts when this page is closed: install the free <b>ntfy</b> app and subscribe to topic<br><b id="topicBox" style="color:#38bdf8;user-select:all"></b></div>
   </div>
 
   <!-- GUEST: call button -->
   <div id="vGuest" class="hide">
     <button class="go" id="btnCall">📞 Call Shebi</button>
+    <button class="end hide" id="btnCancel">Cancel call</button>
   </div>
 
   <!-- HOST: incoming -->
@@ -95,6 +106,7 @@
 
 </div>
 <audio id="remote" autoplay playsinline></audio>
+<audio id="ringAudio" loop playsinline></audio>
 
 <div id="stage" class="hide">
   <video id="rvid" autoplay playsinline muted></video>
@@ -118,7 +130,10 @@
 /* ================= CONFIG ================= */
 const HOST_NAME = "Shebi";
 const ADMIN_PIN = "";            // set e.g. "4821" to require a PIN before creating links ("" = off)
-const ICE_SERVERS = [
+// Paste your own Metered TURN credentials URL here (free account). Example:
+// "https://YOURAPPNAME.metered.live/api/v1/turn/credentials?apiKey=YOUR_API_KEY"
+const METERED_URL = "";
+let ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   // Free public TURN fallback (shared, may be slow). Replace with your own Cloudflare/Metered TURN for best reliability.
@@ -126,7 +141,15 @@ const ICE_SERVERS = [
   { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turns:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
 ];
-const RING_TIMEOUT_MS = 60000;
+const RING_TIMEOUT_MS = 90000;
+async function loadIce(){
+  if(!METERED_URL) return;
+  try{
+    const r = await fetch(METERED_URL); const arr = await r.json();
+    if(Array.isArray(arr) && arr.length) ICE_SERVERS = [{ urls:"stun:stun.l.google.com:19302" }, ...arr];
+  }catch(e){}
+}
+const iceReady = loadIce();
 /* ========================================== */
 
 const $ = id => document.getElementById(id);
@@ -155,24 +178,58 @@ function newPeer(id){
   return new Peer(id, { debug:0, config:{ iceServers: ICE_SERVERS } });
 }
 
-/* ---------- ringtone (WebAudio, no files) ---------- */
-function startRingtone(){
-  try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const beep = () => {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.frequency.value = 440; o.connect(g); g.connect(ctx.destination);
-      g.gain.setValueAtTime(0.0001, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime+.05);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+.9);
-      o.start(); o.stop(ctx.currentTime+1);
-    };
-    beep(); const i = setInterval(beep, 2000);
-    ringTone = { stop(){ clearInterval(i); ctx.close(); } };
-  }catch(e){}
-  if(navigator.vibrate) navigator.vibrate([400,300,400]);
+/* ---------- ringtone (generated WAV played through an <audio> element) ---------- */
+function makeRingUrl(){
+  const sr = 16000, n = sr * 2, buf = new ArrayBuffer(44 + n*2), v = new DataView(buf);
+  const w = (o, str) => { for(let i=0;i<str.length;i++) v.setUint8(o+i, str.charCodeAt(i)); };
+  w(0,"RIFF"); v.setUint32(4,36+n*2,true); w(8,"WAVE"); w(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true);
+  v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  w(36,"data"); v.setUint32(40,n*2,true);
+  const bursts = [[0,0.4],[0.55,0.95]];
+  for(let i=0;i<n;i++){
+    const t = i/sr; let env = 0;
+    for(const [a0,a1] of bursts){ if(t>=a0 && t<a1) env = Math.min(1,(t-a0)/0.02,(a1-t)/0.02); }
+    const smp = env * 0.5 * (Math.sin(2*Math.PI*440*t) + Math.sin(2*Math.PI*480*t)) / 2;
+    v.setInt16(44+i*2, Math.round(smp*32767), true);
+  }
+  return URL.createObjectURL(new Blob([buf], { type:"audio/wav" }));
 }
-function stopRingtone(){ if(ringTone){ ringTone.stop(); ringTone=null; } if(navigator.vibrate) navigator.vibrate(0); }
+const ringAudio = $("ringAudio");
+try{ ringAudio.src = makeRingUrl(); ringAudio.loop = true; }catch(e){}
+let ringVib = null, baseTitle = document.title;
+function startRingtone(){
+  try{ ringAudio.currentTime = 0; ringAudio.muted = false; ringAudio.volume = 1; const p = ringAudio.play(); if(p && p.catch) p.catch(()=>{}); }catch(e){}
+  if(navigator.vibrate) navigator.vibrate([500,300,500]);
+  clearInterval(ringVib); ringVib = setInterval(() => { if(navigator.vibrate) navigator.vibrate([500,300,500]); }, 2500);
+  document.title = "📞 Incoming call";
+}
+function stopRingtone(){
+  try{ ringAudio.pause(); }catch(e){}
+  clearInterval(ringVib); ringVib = null; if(navigator.vibrate) navigator.vibrate(0);
+  document.title = baseTitle;
+}
+
+/* ---------- alerts: unlock audio + notifications ---------- */
+let alertsReady = false;
+async function enableAlerts(){
+  ensureCtx();
+  try{ ringAudio.muted = true; await ringAudio.play(); ringAudio.pause(); ringAudio.currentTime = 0; }catch(e){}
+  ringAudio.muted = false;
+  try{ if("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); }catch(e){}
+  try{ if("serviceWorker" in navigator) await navigator.serviceWorker.register("sw.js"); }catch(e){}
+  alertsReady = true; $("btnAlerts").classList.add("hide");
+}
+async function showCallNotification(){
+  try{
+    if(!("Notification" in window) || Notification.permission !== "granted") return;
+    const opts = { body:"Incoming call - tap to answer", tag:"tws-call", renotify:true, requireInteraction:true, vibrate:[400,200,400,200,400] };
+    const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    if(reg) await reg.showNotification("Talk with Shebi", opts); else new Notification("Talk with Shebi", opts);
+  }catch(e){}
+}
+async function clearCallNotification(){
+  try{ const reg = await navigator.serviceWorker.getRegistration(); if(reg){ (await reg.getNotifications({ tag:"tws-call" })).forEach(n => n.close()); } }catch(e){}
+}
 
 /* ---------- call UI helpers ---------- */
 function startTimer(){
@@ -188,6 +245,7 @@ async function keepAwake(){ try{ wakeLock = await navigator.wakeLock.request("sc
 function bindCall(c, onEnd){
   call = c; watchConn(c);
   c.on("stream", stream => {
+    if(c._ignore) return;
     clearTimeout(ringTimeout);
     $("remote").srcObject = stream;
     $("remote").volume = 1; $("remote").muted = false;
@@ -199,8 +257,8 @@ function bindCall(c, onEnd){
     startTimer(); keepAwake();
     $("btnMute").textContent = "🎤"; $("btnMute").classList.remove("off");
   });
-  c.on("close", () => cleanupCall(onEnd, "Call ended"));
-  c.on("error", () => cleanupCall(onEnd, "Call failed"));
+  c.on("close", () => { if(!c._ignore) cleanupCall(onEnd, "Call ended"); });
+  c.on("error", () => { if(!c._ignore) cleanupCall(onEnd, "Call failed"); });
 }
 
 function cleanupCall(onEnd, msg){
@@ -305,20 +363,50 @@ $("btnFs").onclick = () => {
 };
 
 /* ================= HOST (you) ================= */
+let linkActive = false, creating = false, incomingActive = false;
+
+function modeText(){
+  const m = localStorage.getItem("tws_mode") || "reuse", exp = +localStorage.getItem("tws_exp") || 0;
+  if(m === "once") return "One-time link: stops working after one call.";
+  if(exp) return "Expires: " + new Date(exp).toLocaleString();
+  return "Reusable link: works until you disable it.";
+}
+function disableLink(msg){
+  linkActive = false; creating = false; incomingActive = false;
+  ["tws_id","tws_mode","tws_exp"].forEach(k => localStorage.removeItem(k));
+  stopRingtone(); ring(false); clearCallNotification();
+  if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
+  setSub(msg || "Link disabled. Create a new one."); show("vCreate");
+}
+function hostWatchdog(){
+  if(!linkActive) return;
+  const exp = +localStorage.getItem("tws_exp") || 0;
+  if(exp && Date.now() > exp && !call && !incomingActive){ disableLink("Link expired. Create a new one."); return; }
+  if(peer && peer.disconnected && !peer.destroyed){ try{ peer.reconnect(); }catch(e){} }
+  if((!peer || peer.destroyed) && !creating) createLink();
+}
+
 function hostSetup(){
   $("title").textContent = "Talk with " + HOST_NAME;
   setSub("Create a link and send it on WhatsApp");
   show("vCreate");
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 
   $("btnCreate").onclick = () => {
     if(ADMIN_PIN){
       const p = prompt("Enter PIN");
       if(p !== ADMIN_PIN) return;
     }
+    const mode = $("selMode").value, hours = { "1h":1, "24h":24, "7d":168 }[mode];
+    localStorage.setItem("tws_mode", mode === "once" ? "once" : (hours ? "timed" : "reuse"));
+    if(hours) localStorage.setItem("tws_exp", String(Date.now() + hours*3600*1000)); else localStorage.removeItem("tws_exp");
+    localStorage.removeItem("tws_id");                 // always a fresh link
+    if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
+    enableAlerts();                                    // user tap: unlock ring sound + ask notification permission
     createLink();
   };
-  $("btnNew").onclick = () => { if(peer) peer.destroy(); createLink(true); };
-  if(localStorage.getItem("tws_id")) createLink();
+  $("btnDisable").onclick = () => disableLink("Link disabled. Create a new one.");
+  $("btnAlerts").onclick = enableAlerts;
   $("btnCopy").onclick = async () => {
     try{ await navigator.clipboard.writeText($("linkBox").textContent); $("btnCopy").textContent="Copied ✓"; setTimeout(()=>$("btnCopy").textContent="Copy",1500);}catch(e){}
   };
@@ -326,46 +414,72 @@ function hostSetup(){
     const msg = "Call me here: " + $("linkBox").textContent;
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
   };
+
+  // resume the saved link after a reload
+  if(localStorage.getItem("tws_id")){
+    const exp = +localStorage.getItem("tws_exp") || 0;
+    if(exp && Date.now() > exp) disableLink("Your last link expired. Create a new one.");
+    else createLink();
+  }
+  setInterval(hostWatchdog, 10000);
+  document.addEventListener("visibilitychange", () => { if(!document.hidden) hostWatchdog(); });
 }
 
-function createLink(forceNew){
+async function createLink(){
+  if(creating) return;
+  creating = true; linkActive = true;
   setSub("Creating link…");
-  if(forceNew){ localStorage.removeItem("tws_id"); localStorage.removeItem("tws_topic"); }
+  await iceReady;
   const id = localStorage.getItem("tws_id") || randId();
-  const topic = localStorage.getItem("tws_topic") || randId().replace("tws-","tws-n-");
+  const topic = localStorage.getItem("tws_topic") || randId().replace("tws-","tws-n-");   // alert topic stays the same for all your links
   localStorage.setItem("tws_id", id); localStorage.setItem("tws_topic", topic);
-  peer = newPeer(id);
-  peer.on("open", () => {
-    const url = location.origin + location.pathname + "?r=" + id + "&n=" + topic;
+  const p = newPeer(id); peer = p;
+
+  p.on("open", () => {
+    creating = false;
     $("topicBox").textContent = topic;
-    $("linkBox").textContent = url;
-    setSub("Waiting for a call…");
-    show("vShare");
+    $("linkBox").textContent = location.origin + location.pathname + "?r=" + id + "&n=" + topic;
+    $("modeNote").textContent = modeText();
+    $("btnAlerts").classList.toggle("hide", alertsReady);
+    if(!call && !incomingActive){ setSub("Waiting for a call…"); show("vShare"); }
   });
-  peer.on("call", incoming => {
+
+  p.on("call", incoming => {
     if(incoming.metadata && incoming.metadata.kind === "video"){ acceptVideo(incoming); return; }
-    if(call){ incoming.close(); return; }            // already in a call
-    remoteId = incoming.peer;
-    setSub("Incoming call…"); ring(true); startRingtone(); show("vIncoming");
+    if(call || incomingActive){ incoming.close(); return; }              // already busy
+    const exp = +localStorage.getItem("tws_exp") || 0;
+    if(exp && Date.now() > exp){ incoming.close(); disableLink("Link expired. Create a new one."); return; }
+    remoteId = incoming.peer; incomingActive = true;
+    setSub("Incoming call…"); ring(true); startRingtone(); showCallNotification(); show("vIncoming");
+    const done = () => { incomingActive = false; stopRingtone(); ring(false); clearCallNotification(); };
     $("btnAnswer").onclick = async () => {
-      stopRingtone();
+      stopRingtone(); clearCallNotification();
       localStream = await getMic();
-      if(!localStream){ incoming.close(); show("vShare"); return; }
+      if(!localStream){ incoming.close(); done(); show("vShare"); return; }
+      incomingActive = false;
       incoming.answer(localStream, { sdpTransform });
       bindCall(incoming, afterHostCall);
     };
-    $("btnDecline").onclick = () => { stopRingtone(); ring(false); incoming.close(); setSub("Waiting for a call…"); show("vShare"); };
-    incoming.on("close", () => { if(!localStream){ stopRingtone(); ring(false); setSub("Missed call"); show("vShare"); } });
+    $("btnDecline").onclick = () => { done(); incoming.close(); setSub("Waiting for a call…"); show("vShare"); };
+    incoming.on("close", () => { if(!localStream && incomingActive){ done(); setSub("Missed call"); show("vShare"); } });
   });
-  peer.on("disconnected", () => { try{ peer.reconnect(); }catch(e){} });
-  peer.on("error", e => {
-    if(e.type === "unavailable-id"){ setSub("Reconnecting…"); try{peer.destroy();}catch(x){} setTimeout(() => createLink(), 4000); return; }
-    setSub("Connection problem (" + e.type + "). Tap New link."); show("vShare");
+
+  p.on("disconnected", () => { try{ if(!p.destroyed) p.reconnect(); }catch(e){} });
+  p.on("error", e => {
+    creating = false;
+    if(e.type === "unavailable-id"){ setSub("Reconnecting…"); try{ p.destroy(); }catch(x){} return; }   // watchdog retries shortly
+    if(["network","server-error","socket-error","socket-closed"].includes(e.type)){ setSub("Network problem, reconnecting…"); return; }
+    setSub("Connection problem (" + e.type + ").");
   });
 }
-function afterHostCall(msg){ setSub(msg + ". Waiting for a call…"); show("vShare"); }
+function afterHostCall(msg){
+  remoteId = null;
+  if(localStorage.getItem("tws_mode") === "once"){ disableLink("One-time link used. Create a new link."); return; }
+  setSub(msg + ". Waiting for a call…"); show("vShare");
+}
 
 /* ================= GUEST ================= */
+let gCancelled = false, gRetry = null, gAgain = null;
 function notifyHost(topic){
   if(!topic) return;
   try{
@@ -378,28 +492,54 @@ function guestSetup(roomId){
   setSub("Tap the button to start an audio call");
   show("vGuest");
 
+  $("btnCancel").onclick = () => {
+    gCancelled = true; clearTimeout(gRetry);
+    if(call){ call.close(); } else cleanupCall(afterGuestCall, "Call cancelled");
+  };
+
   $("btnCall").onclick = async () => {
     localStream = await getMic();
     if(!localStream) return;
+    await iceReady;
+    gCancelled = false;
     setSub("Calling " + HOST_NAME + "…"); ring(true);
-    notifyHost(new URLSearchParams(location.search).get("n"));
-    $("btnCall").disabled = true;
+    const topic = new URLSearchParams(location.search).get("n");
+    notifyHost(topic);
+    gAgain = setTimeout(() => { if(!gCancelled && $("stage").classList.contains("hide")) notifyHost(topic); }, 20000);
+    $("btnCall").classList.add("hide"); $("btnCancel").classList.remove("hide");
+
     peer = newPeer(); remoteId = roomId;
     peer.on("call", inc => { if(inc.metadata && inc.metadata.kind === "video") acceptVideo(inc); else inc.close(); });
-    peer.on("open", () => {
+    const dial = () => {
+      if(gCancelled || !peer || peer.destroyed) return;
       const c = peer.call(roomId, localStream, { sdpTransform });
       bindCall(c, afterGuestCall);
-      ringTimeout = setTimeout(() => { if(call){ call.close(); } cleanupCall(afterGuestCall, HOST_NAME + " didn't answer"); }, RING_TIMEOUT_MS);
-    });
+    };
+    peer.on("open", dial);
+    // keep ringing (and retrying) for up to a minute, so a call made while Shebi's page is closed still connects once he opens it
+    ringTimeout = setTimeout(() => {
+      gCancelled = true; clearTimeout(gRetry);
+      if(call){ call._ignore = true; try{ call.close(); }catch(e){} }
+      cleanupCall(afterGuestCall, HOST_NAME + " didn't answer. Please try again later.");
+    }, RING_TIMEOUT_MS);
     peer.on("error", e => {
-      const m = e.type === "peer-unavailable" ? HOST_NAME + " is not available right now. Try again in a moment or ask for a new link." : "Connection problem. Please try again.";
-      cleanupCall(afterGuestCall, m);
+      if(e.type === "peer-unavailable" && !gCancelled){
+        setSub("Waiting for " + HOST_NAME + " to come online…");
+        if(call){ call._ignore = true; try{ call.close(); }catch(x){} call = null; }
+        gRetry = setTimeout(dial, 3000);
+        return;
+      }
+      gCancelled = true; clearTimeout(gRetry);
+      cleanupCall(afterGuestCall, "Connection problem. Please try again.");
     });
   };
 }
 function afterGuestCall(msg){
-  setSub(msg); show("vGuest"); $("btnCall").disabled = false; $("btnCall").textContent = "📞 Call again";
-  if(peer){ try{peer.destroy();}catch(e){} peer=null; }
+  clearTimeout(gRetry); clearTimeout(gAgain);
+  setSub(msg); show("vGuest");
+  $("btnCall").classList.remove("hide"); $("btnCall").disabled = false; $("btnCall").textContent = "📞 Call again";
+  $("btnCancel").classList.add("hide");
+  if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
 }
 
 /* ================= INIT ================= */

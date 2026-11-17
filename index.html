@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>Talk with Shebi</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --txt:#f1f5f9; --mut:#94a3b8; --ok:#22c55e; --bad:#ef4444; --acc:#38bdf8; }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; }
+  body { background:radial-gradient(circle at 50% 0%, #1e3a5f 0%, var(--bg) 60%); color:var(--txt);
+         font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card { width:100%; max-width:380px; background:var(--card); border-radius:24px; padding:32px 24px; text-align:center;
+          box-shadow:0 20px 60px rgba(0,0,0,.45); }
+  .avatar { width:96px; height:96px; border-radius:50%; margin:0 auto 18px; display:flex; align-items:center; justify-content:center;
+            font-size:40px; font-weight:700; background:linear-gradient(135deg,#0ea5e9,#6366f1); }
+  .avatar.ring { animation:pulse 1.4s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(56,189,248,.6)} 100%{box-shadow:0 0 0 28px rgba(56,189,248,0)} }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--mut); font-size:14px; min-height:20px; margin-bottom:22px; }
+  button { width:100%; border:0; border-radius:14px; padding:15px; font-size:16px; font-weight:600; cursor:pointer; color:#fff; margin-top:10px; }
+  .go { background:var(--ok); } .end { background:var(--bad); } .sec { background:#334155; } .wa { background:#25d366; }
+  .row { display:flex; gap:10px; } .row button { margin-top:10px; }
+  .link { background:#0f172a; border-radius:12px; padding:12px; font-size:12px; word-break:break-all; color:var(--acc); margin:10px 0 4px; user-select:all; }
+  .timer { font-size:34px; font-variant-numeric:tabular-nums; margin:4px 0 18px; }
+  .hide { display:none !important; }
+  .note { color:var(--mut); font-size:12px; margin-top:16px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="av" class="avatar">S</div>
+  <h1 id="title">Talk with Shebi</h1>
+  <div id="sub" class="sub"></div>
+
+  <!-- HOST: create link -->
+  <div id="vCreate" class="hide">
+    <button class="go" id="btnCreate">Create call link</button>
+  </div>
+
+  <!-- HOST: waiting with link -->
+  <div id="vShare" class="hide">
+    <div class="link" id="linkBox"></div>
+    <div class="row">
+      <button class="sec" id="btnCopy">Copy</button>
+      <button class="wa" id="btnWA">WhatsApp</button>
+    </div>
+    <button class="sec" id="btnNew">New link</button>
+    <div class="note">Open this page to receive calls. For alerts when this page is closed: install the free <b>ntfy</b> app and subscribe to topic<br><b id="topicBox" style="color:#38bdf8;user-select:all"></b></div>
+  </div>
+
+  <!-- GUEST: call button -->
+  <div id="vGuest" class="hide">
+    <button class="go" id="btnCall">📞 Call Shebi</button>
+  </div>
+
+  <!-- HOST: incoming -->
+  <div id="vIncoming" class="hide">
+    <div class="row">
+      <button class="end" id="btnDecline">Decline</button>
+      <button class="go" id="btnAnswer">Answer</button>
+    </div>
+  </div>
+
+  <!-- IN CALL -->
+  <div id="vCall" class="hide">
+    <div class="timer" id="timer">00:00</div>
+    <div class="row">
+      <button class="sec" id="btnMute">🎤 Mute</button>
+      <button class="end" id="btnEnd">End</button>
+    </div>
+  </div>
+</div>
+<audio id="remote" autoplay playsinline></audio>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+/* ================= CONFIG ================= */
+const HOST_NAME = "Shebi";
+const ADMIN_PIN = "";            // set e.g. "4821" to require a PIN before creating links ("" = off)
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  // Free public TURN fallback (shared, may be slow). Replace with your own Cloudflare/Metered TURN for best reliability.
+  { urls: "turn:openrelay.metered.ca:80",  username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turns:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
+];
+const RING_TIMEOUT_MS = 60000;
+/* ========================================== */
+
+const $ = id => document.getElementById(id);
+const views = ["vCreate","vShare","vGuest","vIncoming","vCall"];
+function show(v){ views.forEach(x => $(x).classList.toggle("hide", x !== v)); }
+function setSub(t){ $("sub").textContent = t; }
+function ring(on){ $("av").classList.toggle("ring", !!on); }
+
+let peer = null, call = null, localStream = null, timerInt = null, wakeLock = null, ringTone = null, ringTimeout = null;
+
+const AUDIO = { audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 }, video:false };
+
+// Raise Opus quality (mono, ~64 kbps, FEC) for clear voice
+function sdpTransform(sdp){
+  return sdp.replace(/a=fmtp:(\d+) (.*useinbandfec=1.*)/g, (m, pt, rest) =>
+    /maxaveragebitrate/.test(rest) ? m : `a=fmtp:${pt} ${rest};maxaveragebitrate=64000;stereo=0;sprop-stereo=0;usedtx=0`);
+}
+
+function randId(){
+  const a = new Uint8Array(12); crypto.getRandomValues(a);
+  return "tws-" + Array.from(a, b => b.toString(36).padStart(2,"0")).join("").slice(0,18);
+}
+
+function newPeer(id){
+  return new Peer(id, { debug:0, config:{ iceServers: ICE_SERVERS } });
+}
+
+/* ---------- ringtone (WebAudio, no files) ---------- */
+function startRingtone(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const beep = () => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 440; o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime+.05);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+.9);
+      o.start(); o.stop(ctx.currentTime+1);
+    };
+    beep(); const i = setInterval(beep, 2000);
+    ringTone = { stop(){ clearInterval(i); ctx.close(); } };
+  }catch(e){}
+  if(navigator.vibrate) navigator.vibrate([400,300,400]);
+}
+function stopRingtone(){ if(ringTone){ ringTone.stop(); ringTone=null; } if(navigator.vibrate) navigator.vibrate(0); }
+
+/* ---------- call UI helpers ---------- */
+function startTimer(){
+  const t0 = Date.now();
+  clearInterval(timerInt);
+  timerInt = setInterval(() => {
+    const s = Math.floor((Date.now()-t0)/1000);
+    $("timer").textContent = String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+  }, 500);
+}
+async function keepAwake(){ try{ wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
+
+function bindCall(c, onEnd){
+  call = c;
+  c.on("stream", stream => {
+    clearTimeout(ringTimeout);
+    $("remote").srcObject = stream;
+    $("remote").play().catch(()=>{});
+    ring(false); stopRingtone();
+    setSub("Connected"); show("vCall"); startTimer(); keepAwake();
+    $("btnMute").textContent = "🎤 Mute";
+  });
+  c.on("close", () => cleanupCall(onEnd, "Call ended"));
+  c.on("error", () => cleanupCall(onEnd, "Call failed"));
+}
+
+function cleanupCall(onEnd, msg){
+  clearTimeout(ringTimeout); clearInterval(timerInt); stopRingtone(); ring(false);
+  if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+  $("remote").srcObject = null;
+  if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLock=null; }
+  call = null;
+  onEnd(msg);
+}
+
+async function getMic(){
+  try{ return await navigator.mediaDevices.getUserMedia(AUDIO); }
+  catch(e){ setSub("Microphone permission is needed. Please allow it and try again."); return null; }
+}
+
+$("btnMute").onclick = () => {
+  if(!localStream) return;
+  const t = localStream.getAudioTracks()[0]; t.enabled = !t.enabled;
+  $("btnMute").textContent = t.enabled ? "🎤 Mute" : "🔇 Unmute";
+};
+$("btnEnd").onclick = () => { if(call) call.close(); };
+
+/* ================= HOST (you) ================= */
+function hostSetup(){
+  $("title").textContent = "Talk with " + HOST_NAME;
+  setSub("Create a link and send it on WhatsApp");
+  show("vCreate");
+
+  $("btnCreate").onclick = () => {
+    if(ADMIN_PIN){
+      const p = prompt("Enter PIN");
+      if(p !== ADMIN_PIN) return;
+    }
+    createLink();
+  };
+  $("btnNew").onclick = () => { if(peer) peer.destroy(); createLink(true); };
+  if(localStorage.getItem("tws_id")) createLink();
+  $("btnCopy").onclick = async () => {
+    try{ await navigator.clipboard.writeText($("linkBox").textContent); $("btnCopy").textContent="Copied ✓"; setTimeout(()=>$("btnCopy").textContent="Copy",1500);}catch(e){}
+  };
+  $("btnWA").onclick = () => {
+    const msg = "Call me here: " + $("linkBox").textContent;
+    window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
+  };
+}
+
+function createLink(forceNew){
+  setSub("Creating link…");
+  if(forceNew){ localStorage.removeItem("tws_id"); localStorage.removeItem("tws_topic"); }
+  const id = localStorage.getItem("tws_id") || randId();
+  const topic = localStorage.getItem("tws_topic") || randId().replace("tws-","tws-n-");
+  localStorage.setItem("tws_id", id); localStorage.setItem("tws_topic", topic);
+  peer = newPeer(id);
+  peer.on("open", () => {
+    const url = location.origin + location.pathname + "?r=" + id + "&n=" + topic;
+    $("topicBox").textContent = topic;
+    $("linkBox").textContent = url;
+    setSub("Waiting for a call…");
+    show("vShare");
+  });
+  peer.on("call", incoming => {
+    if(call){ incoming.close(); return; }            // already in a call
+    setSub("Incoming call…"); ring(true); startRingtone(); show("vIncoming");
+    $("btnAnswer").onclick = async () => {
+      stopRingtone();
+      localStream = await getMic();
+      if(!localStream){ incoming.close(); show("vShare"); return; }
+      incoming.answer(localStream, { sdpTransform });
+      bindCall(incoming, afterHostCall);
+    };
+    $("btnDecline").onclick = () => { stopRingtone(); ring(false); incoming.close(); setSub("Waiting for a call…"); show("vShare"); };
+    incoming.on("close", () => { if(!localStream){ stopRingtone(); ring(false); setSub("Missed call"); show("vShare"); } });
+  });
+  peer.on("disconnected", () => { try{ peer.reconnect(); }catch(e){} });
+  peer.on("error", e => {
+    if(e.type === "unavailable-id"){ setSub("Reconnecting…"); try{peer.destroy();}catch(x){} setTimeout(() => createLink(), 4000); return; }
+    setSub("Connection problem (" + e.type + "). Tap New link."); show("vShare");
+  });
+}
+function afterHostCall(msg){ setSub(msg + ". Waiting for a call…"); show("vShare"); }
+
+/* ================= GUEST ================= */
+function notifyHost(topic){
+  if(!topic) return;
+  try{
+    fetch("https://ntfy.sh/" + encodeURIComponent(topic), { method:"POST", body:"Incoming call - tap to open and answer",
+      headers:{ "Title":"Talk with Shebi", "Priority":"urgent", "Tags":"phone", "Click": location.origin + location.pathname } });
+  }catch(e){}
+}
+function guestSetup(roomId){
+  $("title").textContent = "Call " + HOST_NAME;
+  setSub("Tap the button to start an audio call");
+  show("vGuest");
+
+  $("btnCall").onclick = async () => {
+    localStream = await getMic();
+    if(!localStream) return;
+    setSub("Calling " + HOST_NAME + "…"); ring(true);
+    notifyHost(new URLSearchParams(location.search).get("n"));
+    $("btnCall").disabled = true;
+    peer = newPeer();
+    peer.on("open", () => {
+      const c = peer.call(roomId, localStream, { sdpTransform });
+      bindCall(c, afterGuestCall);
+      ringTimeout = setTimeout(() => { if(call){ call.close(); } cleanupCall(afterGuestCall, HOST_NAME + " didn't answer"); }, RING_TIMEOUT_MS);
+    });
+    peer.on("error", e => {
+      const m = e.type === "peer-unavailable" ? HOST_NAME + " is not available right now. Try again in a moment or ask for a new link." : "Connection problem. Please try again.";
+      cleanupCall(afterGuestCall, m);
+    });
+  };
+}
+function afterGuestCall(msg){
+  setSub(msg); show("vGuest"); $("btnCall").disabled = false; $("btnCall").textContent = "📞 Call again";
+  if(peer){ try{peer.destroy();}catch(e){} peer=null; }
+}
+
+/* ================= INIT ================= */
+const room = new URLSearchParams(location.search).get("r");
+if(!navigator.mediaDevices || !window.Peer){ setSub("This browser is not supported or you are offline."); }
+else if(room) guestSetup(room);
+else hostSetup();
+
+window.addEventListener("beforeunload", () => { if(peer) try{peer.destroy();}catch(e){} });
+</script>
+</body>
+</html>

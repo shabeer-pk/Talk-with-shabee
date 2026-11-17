@@ -6,157 +6,284 @@
 <meta name="theme-color" content="#0f172a">
 <title>Talk with Shebi</title>
 <style>
-  :root { --bg:#0f172a; --card:#1e293b; --txt:#f1f5f9; --mut:#94a3b8; --ok:#22c55e; --bad:#ef4444; --acc:#38bdf8; }
+  :root { --ink:#07151f; --glass:rgba(255,255,255,.10); --glass2:rgba(255,255,255,.18); --line:rgba(255,255,255,.2);
+          --txt:#f2f7fa; --mut:#a9bcc6; --ok:#2fd49a; --bad:#ff5d6c; --sun:#ffc48a; }
   * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
   html,body { height:100%; }
-  body { background:radial-gradient(circle at 50% 0%, #1e3a5f 0%, var(--bg) 60%); color:var(--txt);
-         font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; display:flex; align-items:center; justify-content:center; padding:20px; }
-  .card { width:100%; max-width:380px; background:var(--card); border-radius:24px; padding:32px 24px; text-align:center;
-          box-shadow:0 20px 60px rgba(0,0,0,.45); }
-  .avatar { width:96px; height:96px; border-radius:50%; margin:0 auto 18px; display:flex; align-items:center; justify-content:center;
-            font-size:40px; font-weight:700; background:linear-gradient(135deg,#0ea5e9,#6366f1); }
-  .avatar.ring { animation:pulse 1.4s infinite; }
-  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(56,189,248,.6)} 100%{box-shadow:0 0 0 28px rgba(56,189,248,0)} }
-  h1 { font-size:22px; margin-bottom:6px; }
-  .sub { color:var(--mut); font-size:14px; min-height:20px; margin-bottom:22px; }
-  button { width:100%; border:0; border-radius:14px; padding:15px; font-size:16px; font-weight:600; cursor:pointer; color:#fff; margin-top:10px; }
-  .go { background:var(--ok); } .end { background:var(--bad); } .sec { background:#334155; } .wa { background:#25d366; }
-  .row { display:flex; gap:10px; } .row button { margin-top:10px; }
-  .link { background:#0f172a; border-radius:12px; padding:12px; font-size:12px; word-break:break-all; color:var(--acc); margin:10px 0 4px; user-select:all; }
-  .timer { font-size:34px; font-variant-numeric:tabular-nums; margin:4px 0 18px; }
+  body { background:var(--ink); color:var(--txt); font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+         display:flex; align-items:center; justify-content:center; padding:20px; overflow:hidden; }
   .hide { display:none !important; }
-  .note { color:var(--mut); font-size:12px; margin-top:16px; }
-  .m { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--mut); margin:6px 0; text-align:left; }
-  .m span { width:72px; flex:none; }
-  .bar { flex:1; height:8px; background:#0f172a; border-radius:6px; overflow:hidden; }
-  .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width .1s; }
+  svg { display:block; }
+
+  /* ambient aurora behind the glass */
+  .bg { position:fixed; inset:0; z-index:0; overflow:hidden; }
+  .bg i { position:absolute; border-radius:50%; filter:blur(70px); opacity:.75; animation:drift 26s ease-in-out infinite alternate; }
+  .bg i:nth-child(1) { width:62vmax; height:62vmax; left:-22vmax; top:-18vmax; background:#17888a; }
+  .bg i:nth-child(2) { width:58vmax; height:58vmax; right:-20vmax; bottom:-22vmax; background:#4b36c9; animation-duration:32s; }
+  .bg i:nth-child(3) { width:34vmax; height:34vmax; left:30%; top:42%; background:#ffb27a; opacity:.28; animation-duration:38s; }
+  @keyframes drift { to { transform:translate(7vmax,5vmax) scale(1.12); } }
+
+  .card { position:relative; z-index:1; width:min(100%,400px); max-height:100%; overflow:auto; padding:34px 24px 24px; border-radius:34px; text-align:center;
+          background:linear-gradient(160deg,rgba(255,255,255,.17),rgba(255,255,255,.05));
+          border:1px solid var(--line); box-shadow:0 30px 80px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.38);
+          -webkit-backdrop-filter:blur(28px) saturate(150%); backdrop-filter:blur(28px) saturate(150%); }
+  @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) { .card { background:rgba(14,36,48,.92); } }
+
+  /* glass bubble avatar */
+  .avatar { width:104px; height:104px; border-radius:50%; margin:0 auto 18px; display:grid; place-items:center; font-size:44px; font-weight:700;
+            background:radial-gradient(circle at 30% 22%, rgba(255,255,255,.6), rgba(255,255,255,0) 42%), linear-gradient(145deg,#3fb8b0,#4a3bc2);
+            border:1px solid rgba(255,255,255,.45);
+            box-shadow:inset 0 -12px 26px rgba(0,0,0,.28), inset 0 6px 14px rgba(255,255,255,.32), 0 18px 40px rgba(20,60,120,.45); }
+  .avatar.ring { animation:ripple 1.5s infinite; }
+  @keyframes ripple { 0% { box-shadow:inset 0 -12px 26px rgba(0,0,0,.28), 0 0 0 0 rgba(120,230,220,.55); } 100% { box-shadow:inset 0 -12px 26px rgba(0,0,0,.28), 0 0 0 30px rgba(120,230,220,0); } }
+
+  h1 { font-size:26px; font-weight:700; letter-spacing:-.01em; margin-bottom:6px; }
+  .sub { color:var(--mut); font-size:14.5px; line-height:1.45; min-height:22px; margin-bottom:22px; }
+  .note { color:var(--mut); font-size:12.5px; line-height:1.5; margin-top:14px; }
+  .note b { color:#9fe8e0; font-weight:600; user-select:all; word-break:break-all; }
+
+  /* buttons */
+  .btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; margin-top:10px; padding:15px 18px; border-radius:18px;
+         border:1px solid var(--line); font-weight:600; font-size:16px; line-height:1.2; font-family:inherit; color:#fff; cursor:pointer;
+         background:var(--glass); box-shadow:inset 0 1px 0 rgba(255,255,255,.3);
+         -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); transition:transform .12s ease, filter .2s ease; }
+  .btn svg { width:20px; height:20px; flex:none; }
+  .btn:active { transform:scale(.97); }
+  .btn:hover { filter:brightness(1.08); }
+  .btn:focus-visible, .cb:focus-visible, .ibtn:focus-visible, select:focus-visible, .txt:focus-visible { outline:2px solid var(--sun); outline-offset:2px; }
+  .btn:disabled { opacity:.55; }
+  .btn.primary { background:linear-gradient(135deg,#2cc4b0,#5b4be0); border-color:rgba(255,255,255,.38); box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 10px 26px rgba(70,80,220,.4); }
+  .btn.call    { background:linear-gradient(135deg,#43e3ab,#17a572); border-color:rgba(255,255,255,.4); box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 10px 26px rgba(23,165,114,.4); }
+  .btn.end     { background:linear-gradient(135deg,#ff7d88,#df3449); border-color:rgba(255,255,255,.38); box-shadow:inset 0 1px 0 rgba(255,255,255,.45), 0 10px 26px rgba(223,52,73,.35); }
+  .btn.wa      { background:linear-gradient(135deg,#3fe083,#1fa855); border-color:rgba(255,255,255,.38); }
+  .btn.tint    { background:rgba(255,196,138,.18); border-color:rgba(255,196,138,.5); color:#ffe3c6; }
+  .btn.ghost   { background:transparent; border-color:transparent; box-shadow:none; color:var(--mut); font-weight:500; font-size:14.5px; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row2 .btn { padding:14px 10px; font-size:15px; }
+  .row2.sp .btn { margin-top:10px; }
+
+  /* fields */
+  .fld { display:block; text-align:left; margin-bottom:10px; }
+  .fld > span { display:block; font-size:13px; color:var(--mut); margin:0 4px 6px; }
+  select, .txt { width:100%; padding:14px 16px; border-radius:16px; border:1px solid var(--line); background:rgba(0,0,0,.24); color:var(--txt); font-size:16px; font-family:inherit; }
+  select option { color:#111; }
+  textarea.txt { resize:none; min-height:84px; margin-bottom:2px; }
+  input.txt { margin-bottom:10px; }
+  .linkbox { text-align:left; background:rgba(0,0,0,.28); border:1px solid var(--line); border-radius:16px; padding:13px 14px; margin:2px 0 6px;
+             font-size:12.5px; word-break:break-all; color:#9fe8e0; user-select:all; }
+
+  /* audio level bars */
   #meters { margin-bottom:14px; }
-  input.txt { width:100%; padding:14px; border-radius:14px; border:1px solid #334155; background:#0f172a; color:var(--txt); font-size:16px; margin-bottom:10px; }
-  #gstage { position:fixed; inset:0; z-index:55; background:radial-gradient(circle at 50% 20%, #12294a 0%, #020617 70%); }
-  #gTop { position:absolute; top:max(12px, env(safe-area-inset-top)); left:0; right:0; display:flex; justify-content:center; gap:14px; font-size:15px; text-shadow:0 1px 6px rgba(0,0,0,.7); z-index:2; }
-  #gGrid { position:absolute; top:max(48px, calc(env(safe-area-inset-top) + 40px)); bottom:104px; left:8px; right:8px; display:grid; gap:8px; grid-template-columns:1fr; grid-auto-rows:1fr; }
-  #gGrid[data-n="3"], #gGrid[data-n="4"] { grid-template-columns:1fr 1fr; }
-  @media (orientation:landscape) { #gGrid[data-n="2"] { grid-template-columns:1fr 1fr; } }
-  .tile { position:relative; background:#0b1222; border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center; min-height:0; }
-  .tile video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; background:#000; }
-  .tile.hasVid video { display:block; }
-  .tile .av { width:72px; height:72px; border-radius:50%; background:linear-gradient(135deg,#0ea5e9,#6366f1); display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:700; }
-  .tile.hasVid .av { display:none; }
-  .tile .nm { position:absolute; left:10px; bottom:8px; font-size:13px; background:rgba(0,0,0,.5); padding:2px 9px; border-radius:10px; }
-  .tile.speaking { box-shadow:inset 0 0 0 3px var(--ok); }
-  #gCtrls { position:absolute; bottom:max(26px, env(safe-area-inset-bottom)); left:0; right:0; display:flex; justify-content:center; gap:14px; z-index:2; }
-  #gSound { position:absolute; left:20px; right:20px; bottom:110px; width:auto; z-index:3; }
-  select { width:100%; padding:14px; border-radius:14px; border:1px solid #334155; background:#0f172a; color:var(--txt); font-size:15px; margin-bottom:6px; }
-  #stage { position:fixed; inset:0; z-index:50; background:radial-gradient(circle at 50% 30%, #1e3a5f 0%, #020617 70%); overflow:hidden; }
+  .m { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--mut); margin:6px 0; text-align:left; }
+  .m span { width:64px; flex:none; }
+  .bar { flex:1; height:6px; background:rgba(255,255,255,.14); border-radius:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width .1s; }
+
+  /* ===== 1-to-1 call screen ===== */
+  #stage, #gstage { position:fixed; inset:0; background:radial-gradient(circle at 50% 18%, #153a4d 0%, #06121a 72%); overflow:hidden; }
+  #stage { z-index:50; } #gstage { z-index:55; }
   #stage video { background:#000; }
   #rvid { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; }
   #stage.hasRemote #rvid { display:block; }
-  #noVid { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
-  #noVid .avatar { margin:0; }
-  #stName { font-size:22px; font-weight:600; }
+  #noVid { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+  #noVid .avatar { margin:0 0 10px; }
+  #stName { font-size:22px; font-weight:600; padding:0 24px; text-align:center; }
   #stage.hasRemote #noVid { display:none; }
-  #lvid { position:absolute; right:14px; top:max(64px, calc(env(safe-area-inset-top) + 56px)); width:28vw; max-width:150px; aspect-ratio:3/4; object-fit:cover;
-          border-radius:14px; border:2px solid rgba(255,255,255,.35); display:none; box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  #lvid { position:absolute; right:14px; top:max(64px, calc(env(safe-area-inset-top) + 56px)); width:28vw; max-width:150px; aspect-ratio:3/4; object-fit:cover; display:none;
+          border-radius:18px; border:1.5px solid rgba(255,255,255,.4); box-shadow:0 8px 24px rgba(0,0,0,.5); }
   #stage.hasLocal #lvid { display:block; }
   #topbar { position:absolute; top:max(14px, env(safe-area-inset-top)); left:0; right:0; text-align:center; text-shadow:0 1px 6px rgba(0,0,0,.7); }
-  #topbar .timer { font-size:22px; margin:0; }
+  .timer { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; }
   #topbar .mini { display:flex; justify-content:center; gap:8px; margin-top:6px; }
-  #topbar .mini .bar { width:56px; height:5px; }
-  #ctrls { position:absolute; bottom:max(26px, env(safe-area-inset-bottom)); left:0; right:0; display:flex; justify-content:center; gap:14px; }
-  .cb { width:60px; height:60px; border-radius:50%; margin:0; padding:0; font-size:22px; background:rgba(51,65,85,.85); backdrop-filter:blur(6px); }
-  .cb.off { background:#fff; color:#0f172a; }
-  .cb.end { background:var(--bad); }
+  #topbar .mini .bar { flex:none; width:56px; height:5px; }
+  #ctrls, #gCtrls { position:absolute; bottom:max(26px, env(safe-area-inset-bottom)); left:0; right:0; display:flex; justify-content:center; gap:8px; z-index:2; padding:0 8px; }
+
+  /* glass bubble control buttons */
+  .cb { position:relative; width:54px; height:54px; flex:none; border-radius:50%; display:grid; place-items:center; color:#fff; cursor:pointer; margin:0; padding:0;
+        background:radial-gradient(circle at 30% 20%, rgba(255,255,255,.38), rgba(255,255,255,.08) 55%), rgba(255,255,255,.1);
+        border:1px solid rgba(255,255,255,.32); box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 8px 22px rgba(0,0,0,.38);
+        -webkit-backdrop-filter:blur(16px) saturate(150%); backdrop-filter:blur(16px) saturate(150%); transition:transform .12s ease, background .2s ease; }
+  .cb svg { width:23px; height:23px; }
+  .cb:active { transform:scale(.92); }
+  .cb.off { background:#fff; color:#0b2a38; }
+  .cb.end { background:radial-gradient(circle at 30% 20%, rgba(255,255,255,.45), rgba(255,255,255,0) 50%), linear-gradient(135deg,#ff7d88,#df3449); border-color:rgba(255,255,255,.4); }
+  .badge { position:absolute; top:-3px; right:-3px; min-width:19px; height:19px; padding:0 5px; border-radius:10px; background:#ff5d6c; color:#fff; font:700 11px/19px system-ui; text-align:center; border:2px solid #0b2a38; }
+
+  /* ===== group call screen ===== */
+  #gTop { position:absolute; top:max(12px, env(safe-area-inset-top)); left:0; right:0; display:flex; justify-content:center; gap:14px; font-size:15px; font-weight:600; text-shadow:0 1px 6px rgba(0,0,0,.7); z-index:2; font-variant-numeric:tabular-nums; }
+  #gGrid { position:absolute; top:max(48px, calc(env(safe-area-inset-top) + 40px)); bottom:104px; left:8px; right:8px; display:grid; gap:8px; grid-template-columns:1fr; grid-auto-rows:1fr; }
+  #gGrid[data-n="3"], #gGrid[data-n="4"] { grid-template-columns:1fr 1fr; }
+  @media (orientation:landscape) { #gGrid[data-n="2"] { grid-template-columns:1fr 1fr; } }
+  .tile { position:relative; min-height:0; border-radius:22px; overflow:hidden; display:flex; align-items:center; justify-content:center;
+          background:linear-gradient(160deg,rgba(255,255,255,.12),rgba(255,255,255,.04)); border:1px solid var(--line); transition:box-shadow .15s; }
+  .tile video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; background:#000; }
+  .tile.hasVid video { display:block; }
+  .tile .av { width:72px; height:72px; border-radius:50%; display:grid; place-items:center; font-size:30px; font-weight:700;
+              background:radial-gradient(circle at 30% 22%, rgba(255,255,255,.55), rgba(255,255,255,0) 42%), linear-gradient(145deg,#3fb8b0,#4a3bc2);
+              border:1px solid rgba(255,255,255,.4); box-shadow:inset 0 -8px 16px rgba(0,0,0,.25); }
+  .tile.hasVid .av { display:none; }
+  .tile .nm { position:absolute; left:10px; bottom:8px; font-size:13px; padding:3px 10px; border-radius:12px; background:rgba(0,0,0,.45); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); }
+  .tile.speaking { box-shadow:inset 0 0 0 3px var(--ok); }
+  #gSound, #btnSound { margin-top:10px; }
+  #gSound { position:absolute; left:20px; right:20px; bottom:110px; width:auto; z-index:3; }
+
+  /* ===== chat + reactions ===== */
+  #chat { position:fixed; left:0; right:0; bottom:0; margin:0 auto; max-width:520px; height:64vh; z-index:80; display:flex; flex-direction:column;
+          border-radius:28px 28px 0 0; background:linear-gradient(180deg,rgba(28,52,70,.86),rgba(8,20,30,.94)); border:1px solid var(--line); border-bottom:0;
+          box-shadow:0 -20px 60px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.3); -webkit-backdrop-filter:blur(30px) saturate(150%); backdrop-filter:blur(30px) saturate(150%);
+          animation:sheet .22s ease-out; }
+  @keyframes sheet { from { transform:translateY(40px); opacity:0; } }
+  #chat header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px 6px 20px; }
+  #chat h2 { font-size:17px; font-weight:700; }
+  #chatList { flex:1; overflow:auto; padding:8px 14px; display:flex; flex-direction:column; gap:8px; }
+  .empty { margin:auto; color:var(--mut); font-size:14px; text-align:center; padding:0 30px; }
+  .msg { max-width:80%; padding:9px 13px; border-radius:18px 18px 18px 6px; font-size:15px; line-height:1.4; word-break:break-word; align-self:flex-start; background:var(--glass2); border:1px solid var(--line); }
+  .msg.me { align-self:flex-end; border-radius:18px 18px 6px 18px; background:linear-gradient(135deg,#2cc4b0,#5b4be0); border-color:rgba(255,255,255,.3); }
+  .msg small { display:block; font-size:11.5px; color:#bfeee9; margin-bottom:2px; }
+  #emojiGrid { display:grid; grid-template-columns:repeat(8,1fr); gap:2px; padding:4px 12px 0; }
+  #emojiGrid button { background:none; border:0; font-size:23px; padding:5px 0; cursor:pointer; border-radius:10px; }
+  #emojiGrid button:active { background:var(--glass2); }
+  #chatForm { display:flex; gap:8px; align-items:center; padding:10px 12px calc(12px + env(safe-area-inset-bottom)); }
+  #chatInput { flex:1; margin:0; padding:12px 16px; border-radius:24px; }
+  .ibtn { width:44px; height:44px; flex:none; border-radius:50%; display:grid; place-items:center; color:#fff; cursor:pointer; border:1px solid var(--line); background:var(--glass2); }
+  .ibtn svg { width:20px; height:20px; }
+  .ibtn.send { background:linear-gradient(135deg,#2cc4b0,#5b4be0); border-color:rgba(255,255,255,.35); }
+  #reactBar { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(max(26px, env(safe-area-inset-bottom)) + 70px); z-index:70; display:flex; gap:2px; padding:6px 10px; border-radius:32px;
+              background:rgba(255,255,255,.14); border:1px solid var(--line); box-shadow:inset 0 1px 0 rgba(255,255,255,.4), 0 12px 30px rgba(0,0,0,.4);
+              -webkit-backdrop-filter:blur(20px) saturate(150%); backdrop-filter:blur(20px) saturate(150%); animation:sheet .18s ease-out; }
+  #reactBar button { background:none; border:0; font-size:27px; padding:4px 6px; cursor:pointer; border-radius:14px; }
+  #reactBar button:active { background:var(--glass2); }
+  #floats { position:fixed; inset:0; pointer-events:none; z-index:65; overflow:hidden; }
+  .fl { position:absolute; bottom:130px; font-size:42px; text-align:center; animation:rise 2.6s ease-out forwards; }
+  .fl small { display:block; font-size:12px; color:#fff; text-shadow:0 1px 4px #000; }
+  @keyframes rise { 0% { transform:translateY(0) scale(.6); opacity:0; } 10% { opacity:1; transform:translateY(-20px) scale(1); } 100% { transform:translateY(-55vh) scale(1.15); opacity:0; } }
+  @media (prefers-reduced-motion:reduce) {
+    .bg i, .avatar.ring, #chat, #reactBar { animation:none; }
+    .fl { animation:fadeout 2s forwards; } @keyframes fadeout { 0%,70% { opacity:1; } 100% { opacity:0; } }
+  }
+  @media (max-width:360px) { .cb { width:50px; height:50px; } #ctrls, #gCtrls { gap:6px; } }
 </style>
 </head>
 <body>
-<div class="card">
-  <div id="av" class="avatar">S</div>
+<div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<main class="card" id="card">
+  <div id="av" class="avatar"><span>S</span></div>
   <h1 id="title">Talk with Shebi</h1>
-  <div id="sub" class="sub"></div>
+  <p id="sub" class="sub"></p>
+
   <div id="meters" class="hide">
-    <div class="m"><span>🎤 You</span><div class="bar"><i id="mLocal"></i></div></div>
-    <div class="m"><span>🔊 Them</span><div class="bar"><i id="mRemote"></i></div></div>
+    <div class="m"><span>You</span><div class="bar"><i id="mLocal"></i></div></div>
+    <div class="m"><span>Them</span><div class="bar"><i id="mRemote"></i></div></div>
     <div class="note" id="conn" style="margin-top:6px"></div>
-    <button class="go hide" id="btnSound">🔊 Tap to enable sound</button>
+    <button class="btn tint hide" id="btnSound" data-i="volume">Tap to enable sound</button>
   </div>
 
   <!-- HOST: create link -->
   <div id="vCreate" class="hide">
-    <select id="selType">
-      <option value="one">1-to-1 call</option>
-      <option value="group">Group call (up to 4 people)</option>
-    </select>
-    <select id="selMode">
-      <option value="reuse">Reusable link (until I disable it)</option>
-      <option value="once">One-time link (dies after one call)</option>
-      <option value="1h">Expires in 1 hour</option>
-      <option value="24h">Expires in 24 hours</option>
-      <option value="7d">Expires in 7 days</option>
-    </select>
-    <button class="go" id="btnCreate">Create call link</button>
+    <label class="fld"><span>Call type</span>
+      <select id="selType">
+        <option value="one">1-to-1 call</option>
+        <option value="group">Group call (up to 4 people)</option>
+      </select>
+    </label>
+    <label class="fld"><span>Link validity</span>
+      <select id="selMode">
+        <option value="reuse">Until I disable it</option>
+        <option value="once">One call only</option>
+        <option value="1h">1 hour</option>
+        <option value="24h">24 hours</option>
+        <option value="7d">7 days</option>
+      </select>
+    </label>
+    <button class="btn primary" id="btnCreate" data-i="link">Create call link</button>
   </div>
 
-  <!-- HOST: waiting with link -->
+  <!-- HOST: link ready -->
   <div id="vShare" class="hide">
-    <button class="go hide" id="btnAlerts">🔔 Tap once to enable ring sound &amp; alerts</button>
-    <div class="link" id="linkBox"></div>
+    <button class="btn tint hide" id="btnAlerts" data-i="bell">Turn on ring sound and alerts</button>
+    <div class="linkbox" id="linkBox"></div>
     <div class="note" id="modeNote" style="margin-top:4px"></div>
-    <div class="row">
-      <button class="sec" id="btnCopy">Copy</button>
-      <button class="wa" id="btnWA">WhatsApp</button>
+    <div class="row2">
+      <button class="btn" id="btnCopy" data-i="copy">Copy link</button>
+      <button class="btn wa" id="btnWA" data-i="share">WhatsApp</button>
     </div>
-    <button class="end" id="btnDisable">Disable link</button>
-    <div class="note">Open this page to receive calls. For alerts when this page is closed: install the free <b>ntfy</b> app and subscribe to topic<br><b id="topicBox" style="color:#38bdf8;user-select:all"></b></div>
+    <button class="btn end" id="btnDisable" data-i="ban">Disable link</button>
+    <div class="note">To get alerts while this page is closed, install the ntfy app and subscribe to<br><b id="topicBox"></b></div>
   </div>
 
-  <!-- GUEST: call button -->
+  <!-- GUEST -->
   <div id="vGuest" class="hide">
     <input class="txt hide" id="gName" placeholder="Your name" maxlength="20" autocomplete="name">
-    <button class="go" id="btnCall">📞 Call Shebi</button>
-    <button class="end hide" id="btnCancel">Cancel call</button>
+    <button class="btn call" id="btnCall" data-i="phone">Call Shebi</button>
+    <button class="btn end hide" id="btnCancel" data-i="hangup">Cancel call</button>
+    <button class="btn ghost hide" id="btnMsgToggle" data-i="chat">Leave a message instead</button>
+    <div id="msgBox" class="hide">
+      <input class="txt" id="msgName" placeholder="Your name" maxlength="30" autocomplete="name">
+      <textarea class="txt" id="msgText" rows="3" maxlength="500" placeholder="Write your message"></textarea>
+      <button class="btn primary" id="btnMsgSend" data-i="send">Send message</button>
+      <div class="note" id="msgStatus" role="status"></div>
+    </div>
   </div>
 
   <!-- HOST: incoming -->
   <div id="vIncoming" class="hide">
-    <div class="row">
-      <button class="end" id="btnDecline">Decline</button>
-      <button class="go" id="btnAnswer">Answer</button>
+    <div class="row2 sp">
+      <button class="btn end" id="btnDecline" data-i="hangup">Decline</button>
+      <button class="btn call" id="btnAnswer" data-i="phone">Answer</button>
     </div>
   </div>
+</main>
 
-</div>
 <audio id="remote" autoplay playsinline></audio>
 <audio id="ringAudio" loop playsinline></audio>
 
 <div id="gstage" class="hide">
   <div id="gTop"><span id="gTimer">00:00</span><span id="gCount"></span></div>
   <div id="gGrid" data-n="0"></div>
-  <button class="go hide" id="gSound">🔊 Tap to enable sound</button>
+  <button class="btn tint hide" id="gSound" data-i="volume">Tap to enable sound</button>
   <div id="gCtrls">
-    <button class="cb" id="gMute" title="Mute">🎤</button>
-    <button class="cb" id="gCam" title="Camera">📷</button>
-    <button class="cb hide" id="gFlip" title="Flip camera">🔄</button>
-    <button class="cb end" id="gEnd" title="Leave call">📞</button>
+    <button class="cb" id="gMute" aria-label="Mute microphone" data-i="mic"></button>
+    <button class="cb" id="gCam" aria-label="Camera" data-i="videooff"></button>
+    <button class="cb hide" id="gFlip" aria-label="Switch camera" data-i="flip"></button>
+    <button class="cb" id="gReact" aria-label="Reactions" data-i="smile"></button>
+    <button class="cb" id="gChat" aria-label="Chat" data-i="chat"></button>
+    <button class="cb end" id="gEnd" aria-label="Leave call" data-i="hangup"></button>
   </div>
   <div id="gAudio"></div>
 </div>
 
 <div id="stage" class="hide">
   <video id="rvid" autoplay playsinline muted></video>
-  <div id="noVid"><div class="avatar">S</div><div id="stName"></div></div>
+  <div id="noVid"><div class="avatar"><span>S</span></div><div id="stName"></div></div>
   <video id="lvid" autoplay playsinline muted></video>
   <div id="topbar">
     <div class="timer" id="timer">00:00</div>
     <div class="mini"><div class="bar"><i id="mLocal2"></i></div><div class="bar"><i id="mRemote2"></i></div></div>
   </div>
   <div id="ctrls">
-    <button class="cb" id="btnMute" title="Mute">🎤</button>
-    <button class="cb" id="btnCam" title="Camera">📷</button>
-    <button class="cb hide" id="btnFlip" title="Flip camera">🔄</button>
-    <button class="cb" id="btnFs" title="Full screen">⛶</button>
-    <button class="cb end" id="btnEnd" title="End call">📞</button>
+    <button class="cb" id="btnMute" aria-label="Mute microphone" data-i="mic"></button>
+    <button class="cb" id="btnCam" aria-label="Camera" data-i="videooff"></button>
+    <button class="cb hide" id="btnFlip" aria-label="Switch camera" data-i="flip"></button>
+    <button class="cb" id="btnReact" aria-label="Reactions" data-i="smile"></button>
+    <button class="cb" id="btnChat" aria-label="Chat" data-i="chat"></button>
+    <button class="cb end" id="btnEnd" aria-label="End call" data-i="hangup"></button>
   </div>
 </div>
+
+<!-- chat sheet, reactions -->
+<div id="floats" aria-hidden="true"></div>
+<div id="reactBar" class="hide"></div>
+<section id="chat" class="hide" aria-label="Chat">
+  <header><h2>Chat</h2><button class="ibtn" id="chatClose" aria-label="Close chat" data-i="x"></button></header>
+  <div id="chatList"></div>
+  <div id="emojiGrid" class="hide"></div>
+  <form id="chatForm" autocomplete="off">
+    <button type="button" class="ibtn" id="chatEmoji" aria-label="Emoji" data-i="smile"></button>
+    <input class="txt" id="chatInput" placeholder="Message" maxlength="500" autocomplete="off">
+    <button type="submit" class="ibtn send" id="chatSend" aria-label="Send" data-i="send"></button>
+  </form>
+</section>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
@@ -186,6 +313,36 @@ const iceReady = loadIce();
 /* ========================================== */
 
 const $ = id => document.getElementById(id);
+/* ---------- icons (inline, stroke style) ---------- */
+const svg = p => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
+const PHONE = '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>';
+const ICONS = {
+  mic: svg('<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>'),
+  micoff: svg('<line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/>'),
+  video: svg('<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>'),
+  videooff: svg('<path d="M10.66 6H14a2 2 0 0 1 2 2v2.5l5.248-3.062A.5.5 0 0 1 22 7.87v8.196"/><path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/><path d="m2 2 20 20"/>'),
+  phone: svg(PHONE),
+  hangup: svg('<g transform="rotate(135 12 12)">' + PHONE + '</g>'),
+  chat: svg('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'),
+  smile: svg('<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/>'),
+  send: svg('<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'),
+  copy: svg('<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'),
+  share: svg('<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>'),
+  ban: svg('<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>'),
+  bell: svg('<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>'),
+  volume: svg('<path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.4 18.4a9 9 0 0 0 0-12.8"/>'),
+  x: svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+  flip: svg('<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>'),
+  link: svg('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>')
+};
+function setIc(el, name){ el.innerHTML = ICONS[name]; }
+function setLabel(el, text){ const sp = el.querySelector("span"); if(sp) sp.textContent = text; else el.textContent = text; }
+document.querySelectorAll("[data-i]").forEach(el => {
+  const t = el.textContent.trim();
+  el.innerHTML = ICONS[el.dataset.i] + (t ? "<span>" + t + "</span>" : "");
+});
+["btnChat","gChat"].forEach(id => { const b = document.createElement("b"); b.className = "badge hide"; $(id).appendChild(b); });
+
 const views = ["vCreate","vShare","vGuest","vIncoming"];
 function show(v){ views.forEach(x => $(x).classList.toggle("hide", x !== v)); }
 function setSub(t){ $("sub").textContent = t; }
@@ -201,6 +358,24 @@ function sdpTransform(sdp){
   return sdp.replace(/a=fmtp:(\d+) (.*useinbandfec=1.*)/g, (m, pt, rest) =>
     /maxaveragebitrate/.test(rest) ? m : `a=fmtp:${pt} ${rest};maxaveragebitrate=64000;stereo=0;sprop-stereo=0;usedtx=0`);
 }
+
+// Prefer H.264 for video: most phones encode/decode it in dedicated hardware, which runs much cooler than software VP8/VP9
+function preferH264(sdp){
+  try{
+    const lines = sdp.split("\r\n");
+    const mi = lines.findIndex(l => l.startsWith("m=video")); if(mi < 0) return sdp;
+    const all = [];
+    lines.forEach(l => { const m = l.match(/^a=rtpmap:(\d+) H264\/90000/); if(m) all.push(m[1]); });
+    if(!all.length) return sdp;
+    const good = all.filter(pt => lines.some(l => l.startsWith("a=fmtp:" + pt + " ") && /packetization-mode=1/.test(l)));
+    const prefer = good.length ? good : all;
+    const parts = lines[mi].split(" "), head = parts.slice(0,3), pts = parts.slice(3);
+    const ordered = prefer.filter(x => pts.includes(x)).concat(pts.filter(x => !prefer.includes(x)));
+    lines[mi] = head.concat(ordered).join(" ");
+    return lines.join("\r\n");
+  }catch(e){ return sdp; }
+}
+const GROUP_VIDEO = { width:640, height:480, fps:24 };   // group tiles are small, so 480p looks the same but costs far less heat (raise to 1280x720 if you prefer)
 
 function randId(){
   const a = new Uint8Array(12); crypto.getRandomValues(a);
@@ -288,14 +463,15 @@ function bindCall(c, onEnd){
     setSub("Connected"); show("none"); $("stage").classList.remove("hide");
     $("stName").textContent = room ? HOST_NAME : "Caller";
     startTimer(); keepAwake();
-    $("btnMute").textContent = "🎤"; $("btnMute").classList.remove("off");
+    if(room && !isGroup) openGuestChat();
+    setIc($("btnMute"), "mic"); $("btnMute").classList.remove("off");
   });
   c.on("close", () => { if(!c._ignore) cleanupCall(onEnd, "Call ended"); });
   c.on("error", () => { if(!c._ignore) cleanupCall(onEnd, "Call failed"); });
 }
 
 function cleanupCall(onEnd, msg){
-  clearTimeout(ringTimeout); clearInterval(timerInt); stopRingtone(); ring(false); clearMeters(); endVideo(); $("stage").classList.add("hide");
+  clearTimeout(ringTimeout); clearInterval(timerInt); stopRingtone(); ring(false); clearMeters(); endVideo(); clearChat(); $("stage").classList.add("hide");
   if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
   $("remote").srcObject = null;
   if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLock=null; }
@@ -347,7 +523,7 @@ async function getMic(){
 $("btnMute").onclick = () => {
   if(!localStream) return;
   const t = localStream.getAudioTracks()[0]; t.enabled = !t.enabled;
-  $("btnMute").textContent = t.enabled ? "🎤" : "🔇"; $("btnMute").classList.toggle("off", !t.enabled);
+  setIc($("btnMute"), t.enabled ? "mic" : "micoff"); $("btnMute").classList.toggle("off", !t.enabled);
 };
 $("btnEnd").onclick = () => { if(call) call.close(); };
 
@@ -365,7 +541,8 @@ async function startCam(){
   if(!peer || !remoteId || !call) return;
   try{
     camStream = await navigator.mediaDevices.getUserMedia({ audio:false,
-      video:{ facingMode:facing, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:24, max:30} } });
+      video:{ facingMode:facing, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30, max:30} } });
+    try{ camStream.getVideoTracks()[0].contentHint = "motion"; }catch(x){}
   }catch(e){
     const n = e && e.name;
     $("stName").textContent = n === "NotAllowedError" ? "Camera is blocked - allow it in site settings" : "Could not start camera";
@@ -374,14 +551,14 @@ async function startCam(){
   $("lvid").srcObject = camStream;
   $("lvid").style.transform = facing === "user" ? "scaleX(-1)" : "none";
   stage.classList.add("hasLocal");
-  $("btnCam").textContent = "🎥"; $("btnCam").classList.add("off"); $("btnFlip").classList.remove("hide");
-  vOut = peer.call(remoteId, camStream, { metadata:{ kind:"video" } });
+  setIc($("btnCam"), "video"); $("btnCam").classList.add("off"); $("btnFlip").classList.remove("hide");
+  vOut = peer.call(remoteId, camStream, { metadata:{ kind:"video" }, sdpTransform: preferH264 });
 }
 function stopCam(){
   if(camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
   if(vOut){ try{ vOut.close(); }catch(e){} vOut = null; }
   $("lvid").srcObject = null; stage.classList.remove("hasLocal");
-  $("btnCam").textContent = "📷"; $("btnCam").classList.remove("off"); $("btnFlip").classList.add("hide");
+  setIc($("btnCam"), "videooff"); $("btnCam").classList.remove("off"); $("btnFlip").classList.add("hide");
 }
 function endVideo(){
   stopCam();
@@ -390,10 +567,7 @@ function endVideo(){
 }
 $("btnCam").onclick = () => { camStream ? stopCam() : startCam(); };
 $("btnFlip").onclick = async () => { facing = facing === "user" ? "environment" : "user"; stopCam(); await startCam(); };
-$("btnFs").onclick = () => {
-  const d = document;
-  if(d.fullscreenElement) d.exitFullscreen(); else if(stage.requestFullscreen) stage.requestFullscreen().catch(()=>{});
-};
+
 
 /* ================= GROUP CALL (mesh, up to 4 people) ================= */
 const GMAX = 4;
@@ -445,7 +619,7 @@ function gRemove(id){
 function gSendVideo(e){
   if(!G.cam || !peer) return;
   if(e.vout){ try{ e.vout.close(); }catch(x){} }
-  e.vout = peer.call(e.id, G.cam, { metadata:{ kind:"gvideo", name:G.myName } });
+  e.vout = peer.call(e.id, G.cam, { metadata:{ kind:"gvideo", name:G.myName }, sdpTransform: preferH264 });
 }
 function gHandleCall(c){
   const kind = c.metadata && c.metadata.kind;
@@ -489,25 +663,26 @@ function gStart(){
     const sec = Math.floor((Date.now()-t0)/1000);
     $("gTimer").textContent = String(Math.floor(sec/60)).padStart(2,"0") + ":" + String(sec%60).padStart(2,"0");
   }, 500);
-  $("gMute").textContent = "🎤"; $("gMute").classList.remove("off");
+  setIc($("gMute"), "mic"); $("gMute").classList.remove("off");
   keepAwake();
 }
 async function gStartCam(){
   if(!G.live) return;
   try{
-    G.cam = await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:G.facing, width:{ideal:960}, height:{ideal:720}, frameRate:{ideal:20, max:24} } });
+    G.cam = await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:G.facing, width:{ideal:GROUP_VIDEO.width}, height:{ideal:GROUP_VIDEO.height}, frameRate:{ideal:GROUP_VIDEO.fps, max:GROUP_VIDEO.fps} } });
+    try{ G.cam.getVideoTracks()[0].contentHint = "motion"; }catch(x){}
   }catch(e){ G.cam = null; return; }
   const v = G.selfTile.querySelector("video");
   v.srcObject = G.cam; v.style.transform = G.facing === "user" ? "scaleX(-1)" : "none"; v.play().catch(()=>{});
   G.selfTile.classList.add("hasVid");
-  $("gCam").textContent = "🎥"; $("gCam").classList.add("off"); $("gFlip").classList.remove("hide");
+  setIc($("gCam"), "video"); $("gCam").classList.add("off"); $("gFlip").classList.remove("hide");
   G.peers.forEach(e => gSendVideo(e));
 }
 function gStopCam(){
   if(G.cam){ G.cam.getTracks().forEach(t => t.stop()); G.cam = null; }
   G.peers.forEach(e => { if(e.vout){ try{ e.vout.close(); }catch(x){} e.vout = null; } });
   if(G.selfTile){ G.selfTile.classList.remove("hasVid"); G.selfTile.querySelector("video").srcObject = null; }
-  $("gCam").textContent = "📷"; $("gCam").classList.remove("off"); $("gFlip").classList.add("hide");
+  setIc($("gCam"), "videooff"); $("gCam").classList.remove("off"); $("gFlip").classList.add("hide");
 }
 function gEnd(){
   G.live = false;
@@ -517,14 +692,14 @@ function gEnd(){
   if(G.local){ G.local.getTracks().forEach(t => t.stop()); G.local = null; }
   G.members.forEach(m => { try{ m.dc.close(); }catch(x){} }); G.members = [];
   if(G.hostDc){ try{ G.hostDc.close(); }catch(x){} G.hostDc = null; }
-  $("gGrid").innerHTML = ""; gLayout(); $("gstage").classList.add("hide");
+  $("gGrid").innerHTML = ""; gLayout(); $("gstage").classList.add("hide"); clearChat();
   if(wakeLock){ try{ wakeLock.release(); }catch(x){} wakeLock = null; }
   clearMeters();
 }
 $("gMute").onclick = () => {
   if(!G.local) return;
   const t = G.local.getAudioTracks()[0]; t.enabled = !t.enabled;
-  $("gMute").textContent = t.enabled ? "🎤" : "🔇"; $("gMute").classList.toggle("off", !t.enabled);
+  setIc($("gMute"), t.enabled ? "mic" : "micoff"); $("gMute").classList.toggle("off", !t.enabled);
 };
 $("gCam").onclick = () => { G.cam ? gStopCam() : gStartCam(); };
 $("gFlip").onclick = async () => { G.facing = G.facing === "user" ? "environment" : "user"; gStopCam(); await gStartCam(); };
@@ -594,13 +769,14 @@ function gGuestMsg(msg){
   else if(msg.t === "full"){ gGuestEnd("This call is full (maximum " + GMAX + " people)."); }
   else if(msg.t === "declined"){ gGuestEnd(HOST_NAME + " is not available right now."); }
   else if(msg.t === "nogroup"){ gGuestEnd("This link is not a group link."); }
+  else if(msg.t === "chat" || msg.t === "react"){ onNet(msg, null); }
 }
 function gGuestEnd(msg){
   clearTimeout(ringTimeout); clearTimeout(gRetry); clearTimeout(gAgain);
   gCancelled = true; ring(false); gEnd();
   if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
   setSub(msg); show("vGuest");
-  $("btnCall").classList.remove("hide"); $("btnCall").disabled = false; $("btnCall").textContent = "👥 Join again";
+  $("btnCall").classList.remove("hide"); $("btnCall").disabled = false; setLabel($("btnCall"), "Join again");
   $("btnCancel").classList.add("hide"); $("gName").classList.remove("hide");
 }
 function guestGroupSetup(roomId){
@@ -608,7 +784,7 @@ function guestGroupSetup(roomId){
   setSub("Enter your name and tap Join (up to " + GMAX + " people)");
   show("vGuest");
   $("gName").classList.remove("hide"); $("gName").value = localStorage.getItem("tws_name") || "";
-  $("btnCall").textContent = "👥 Join call";
+  setLabel($("btnCall"), "Join call");
 
   $("btnCancel").onclick = () => gGuestEnd("Cancelled.");
   $("btnCall").onclick = async () => {
@@ -643,6 +819,109 @@ function guestGroupSetup(roomId){
       }
       gGuestEnd("Connection problem. Please try again.");
     });
+  };
+}
+
+/* ================= CHAT, REACTIONS (live only, gone when the call ends) ================= */
+const CH = { dc:null, unread:0, open:false };
+const EMOJIS = ["😀","😂","😍","🥰","😎","🤔","😢","😮","😡","👍","👎","👏","🙏","🙌","💪","🔥","❤️","🎉","✅","❌","👋","🤝","✨","💯"];
+const REACTS = ["👍","❤️","😂","👏","🙏","😮","✋"];
+
+function chatTargets(){
+  if(G.live) return G.isHost ? G.members.filter(m => m.live && m.dc.open).map(m => m.dc) : (G.hostDc && G.hostDc.open ? [G.hostDc] : []);
+  return (CH.dc && CH.dc.open) ? [CH.dc] : [];
+}
+function netSend(obj, except){ chatTargets().forEach(dc => { if(dc !== except){ try{ dc.send(obj); }catch(e){} } }); }
+function myChatName(){ return G.live ? G.myName : (room ? "" : HOST_NAME); }
+function isGroupCall(){ return G.live; }
+
+function chatEmpty(){ if(!$("chatList").children.length){ const d = document.createElement("div"); d.className = "empty"; d.textContent = "Messages here disappear when the call ends."; $("chatList").appendChild(d); } }
+function addBubble(from, text, mine){
+  const list = $("chatList"); const e = list.querySelector(".empty"); if(e) e.remove();
+  const d = document.createElement("div"); d.className = "msg" + (mine ? " me" : "");
+  if(!mine && from && isGroupCall()){ const sm = document.createElement("small"); sm.textContent = from; d.appendChild(sm); }
+  d.appendChild(document.createTextNode(text));
+  list.appendChild(d); list.scrollTop = list.scrollHeight;
+}
+function setBadges(){
+  ["btnChat","gChat"].forEach(id => { const b = $(id).querySelector(".badge"); b.textContent = CH.unread > 9 ? "9+" : CH.unread; b.classList.toggle("hide", !CH.unread); });
+}
+function openChat(){
+  CH.open = true; CH.unread = 0; setBadges();
+  $("reactBar").classList.add("hide"); $("chat").classList.remove("hide"); chatEmpty();
+  setTimeout(() => $("chatList").scrollTop = $("chatList").scrollHeight, 0);
+}
+function closeChat(){ CH.open = false; $("chat").classList.add("hide"); $("emojiGrid").classList.add("hide"); }
+function clearChat(){
+  closeChat(); $("chatList").innerHTML = ""; CH.unread = 0; CH.dc = null; setBadges();
+  $("reactBar").classList.add("hide"); $("floats").innerHTML = "";
+}
+function floatEmoji(emoji, from){
+  const f = document.createElement("div"); f.className = "fl";
+  f.style.left = (14 + Math.random() * 66) + "%";
+  f.textContent = emoji;
+  if(from && isGroupCall()){ const sm = document.createElement("small"); sm.textContent = from; f.appendChild(sm); }
+  $("floats").appendChild(f); setTimeout(() => f.remove(), 2800);
+}
+function sendChat(text){
+  text = text.trim(); if(!text) return;
+  netSend({ t:"chat", from:myChatName(), text });
+  addBubble("", text, true);
+}
+function sendReact(emoji){
+  netSend({ t:"react", from:myChatName(), emoji });
+  floatEmoji(emoji, "");
+  $("reactBar").classList.add("hide");
+}
+function onNet(msg, fromDc){
+  if(!msg) return;
+  const relay = G.live && G.isHost;
+  if(msg.t === "chat" && typeof msg.text === "string"){
+    const text = msg.text.slice(0, 500), from = String(msg.from || "").slice(0, 20);
+    addBubble(from, text, false);
+    if(!CH.open){ CH.unread++; setBadges(); if(navigator.vibrate) navigator.vibrate(60); }
+    if(relay) netSend({ t:"chat", from, text }, fromDc);
+  }else if(msg.t === "react" && typeof msg.emoji === "string"){
+    const emoji = msg.emoji.slice(0, 4), from = String(msg.from || "").slice(0, 20);
+    floatEmoji(emoji, from);
+    if(relay) netSend({ t:"react", from, emoji }, fromDc);
+  }
+}
+function openGuestChat(){
+  if(CH.dc || !peer || !room) return;
+  const dc = peer.connect(room, { reliable:true }); CH.dc = dc;
+  dc.on("open", () => { try{ dc.send({ t:"hi1" }); }catch(e){} });
+  dc.on("data", m => onNet(m, dc));
+  dc.on("close", () => { if(CH.dc === dc) CH.dc = null; });
+}
+// UI wiring
+REACTS.forEach(em => { const b = document.createElement("button"); b.type = "button"; b.textContent = em; b.setAttribute("aria-label", "React " + em); b.onclick = () => sendReact(em); $("reactBar").appendChild(b); });
+EMOJIS.forEach(em => { const b = document.createElement("button"); b.type = "button"; b.textContent = em; b.onclick = () => { $("chatInput").value += em; $("chatInput").focus(); }; $("emojiGrid").appendChild(b); });
+["btnChat","gChat"].forEach(id => $(id).onclick = () => CH.open ? closeChat() : openChat());
+["btnReact","gReact"].forEach(id => $(id).onclick = () => { closeChat(); $("reactBar").classList.toggle("hide"); });
+$("chatClose").onclick = closeChat;
+$("chatEmoji").onclick = () => $("emojiGrid").classList.toggle("hide");
+$("chatForm").onsubmit = e => { e.preventDefault(); sendChat($("chatInput").value); $("chatInput").value = ""; };
+
+/* ---- leave a message (works when Shebi is offline; arrives as an ntfy alert) ---- */
+function setupLeaveMessage(){
+  const topic = new URLSearchParams(location.search).get("n");
+  if(!topic) return;
+  $("btnMsgToggle").classList.remove("hide");
+  $("btnMsgToggle").onclick = () => $("msgBox").classList.toggle("hide");
+  $("msgName").value = localStorage.getItem("tws_name") || "";
+  $("btnMsgSend").onclick = async () => {
+    const name = ($("msgName").value || "").trim().slice(0, 30) || "Someone", text = ($("msgText").value || "").trim();
+    if(!text){ $("msgStatus").textContent = "Write a message first."; return; }
+    $("btnMsgSend").disabled = true; $("msgStatus").textContent = "Sending…";
+    try{
+      const r = await fetch("https://ntfy.sh/", { method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ topic, title:"Message from " + name, message:text, priority:4, tags:["speech_balloon"], click: location.origin + location.pathname }) });
+      if(!r.ok) throw new Error("http " + r.status);
+      $("msgStatus").textContent = "Message sent. " + HOST_NAME + " will see it on his phone."; $("msgText").value = "";
+      try{ localStorage.setItem("tws_name", name); }catch(e){}
+    }catch(e){ $("msgStatus").textContent = "Could not send. Check your connection and try again."; }
+    $("btnMsgSend").disabled = false;
   };
 }
 
@@ -695,7 +974,7 @@ function hostSetup(){
   $("btnDisable").onclick = () => disableLink("Link disabled. Create a new one.");
   $("btnAlerts").onclick = enableAlerts;
   $("btnCopy").onclick = async () => {
-    try{ await navigator.clipboard.writeText($("linkBox").textContent); $("btnCopy").textContent="Copied ✓"; setTimeout(()=>$("btnCopy").textContent="Copy",1500);}catch(e){}
+    try{ await navigator.clipboard.writeText($("linkBox").textContent); setLabel($("btnCopy"), "Copied"); setTimeout(() => setLabel($("btnCopy"), "Copy link"), 1500);}catch(e){}
   };
   $("btnWA").onclick = () => {
     const msg = "Call me here: " + $("linkBox").textContent;
@@ -733,8 +1012,13 @@ async function createLink(){
   });
 
   p.on("connection", dc => {
-    dc.on("data", msg => { if(msg && msg.t === "hello") hostGroupJoin(dc, String(msg.name || "Guest").slice(0, 20)); });
-    dc.on("close", () => hostGroupLeft(dc));
+    dc.on("data", msg => {
+      if(!msg) return;
+      if(msg.t === "hello") hostGroupJoin(dc, String(msg.name || "Guest").slice(0, 20));
+      else if(msg.t === "hi1"){ CH.dc = dc; }
+      else onNet(msg, dc);
+    });
+    dc.on("close", () => { if(CH.dc === dc) CH.dc = null; hostGroupLeft(dc); });
   });
   p.on("call", incoming => {
     const kind = incoming.metadata && incoming.metadata.kind;
@@ -832,7 +1116,7 @@ function guestSetup(roomId){
 function afterGuestCall(msg){
   clearTimeout(gRetry); clearTimeout(gAgain);
   setSub(msg); show("vGuest");
-  $("btnCall").classList.remove("hide"); $("btnCall").disabled = false; $("btnCall").textContent = "📞 Call again";
+  $("btnCall").classList.remove("hide"); $("btnCall").disabled = false; setLabel($("btnCall"), "Call again");
   $("btnCancel").classList.add("hide");
   if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
 }
@@ -841,7 +1125,7 @@ function afterGuestCall(msg){
 const room = new URLSearchParams(location.search).get("r");
 const isGroup = new URLSearchParams(location.search).get("g") === "1";
 if(!navigator.mediaDevices || !window.Peer){ setSub("This browser is not supported or you are offline."); }
-else if(room) guestSetup(room);
+else if(room){ guestSetup(room); setupLeaveMessage(); }
 else hostSetup();
 
 window.addEventListener("beforeunload", () => { if(peer) try{peer.destroy();}catch(e){} });

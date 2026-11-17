@@ -31,6 +31,21 @@
   .bar { flex:1; height:8px; background:#0f172a; border-radius:6px; overflow:hidden; }
   .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width .1s; }
   #meters { margin-bottom:14px; }
+  input.txt { width:100%; padding:14px; border-radius:14px; border:1px solid #334155; background:#0f172a; color:var(--txt); font-size:16px; margin-bottom:10px; }
+  #gstage { position:fixed; inset:0; z-index:55; background:radial-gradient(circle at 50% 20%, #12294a 0%, #020617 70%); }
+  #gTop { position:absolute; top:max(12px, env(safe-area-inset-top)); left:0; right:0; display:flex; justify-content:center; gap:14px; font-size:15px; text-shadow:0 1px 6px rgba(0,0,0,.7); z-index:2; }
+  #gGrid { position:absolute; top:max(48px, calc(env(safe-area-inset-top) + 40px)); bottom:104px; left:8px; right:8px; display:grid; gap:8px; grid-template-columns:1fr; grid-auto-rows:1fr; }
+  #gGrid[data-n="3"], #gGrid[data-n="4"] { grid-template-columns:1fr 1fr; }
+  @media (orientation:landscape) { #gGrid[data-n="2"] { grid-template-columns:1fr 1fr; } }
+  .tile { position:relative; background:#0b1222; border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center; min-height:0; }
+  .tile video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; background:#000; }
+  .tile.hasVid video { display:block; }
+  .tile .av { width:72px; height:72px; border-radius:50%; background:linear-gradient(135deg,#0ea5e9,#6366f1); display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:700; }
+  .tile.hasVid .av { display:none; }
+  .tile .nm { position:absolute; left:10px; bottom:8px; font-size:13px; background:rgba(0,0,0,.5); padding:2px 9px; border-radius:10px; }
+  .tile.speaking { box-shadow:inset 0 0 0 3px var(--ok); }
+  #gCtrls { position:absolute; bottom:max(26px, env(safe-area-inset-bottom)); left:0; right:0; display:flex; justify-content:center; gap:14px; z-index:2; }
+  #gSound { position:absolute; left:20px; right:20px; bottom:110px; width:auto; z-index:3; }
   select { width:100%; padding:14px; border-radius:14px; border:1px solid #334155; background:#0f172a; color:var(--txt); font-size:15px; margin-bottom:6px; }
   #stage { position:fixed; inset:0; z-index:50; background:radial-gradient(circle at 50% 30%, #1e3a5f 0%, #020617 70%); overflow:hidden; }
   #stage video { background:#000; }
@@ -67,6 +82,10 @@
 
   <!-- HOST: create link -->
   <div id="vCreate" class="hide">
+    <select id="selType">
+      <option value="one">1-to-1 call</option>
+      <option value="group">Group call (up to 4 people)</option>
+    </select>
     <select id="selMode">
       <option value="reuse">Reusable link (until I disable it)</option>
       <option value="once">One-time link (dies after one call)</option>
@@ -92,6 +111,7 @@
 
   <!-- GUEST: call button -->
   <div id="vGuest" class="hide">
+    <input class="txt hide" id="gName" placeholder="Your name" maxlength="20" autocomplete="name">
     <button class="go" id="btnCall">📞 Call Shebi</button>
     <button class="end hide" id="btnCancel">Cancel call</button>
   </div>
@@ -107,6 +127,19 @@
 </div>
 <audio id="remote" autoplay playsinline></audio>
 <audio id="ringAudio" loop playsinline></audio>
+
+<div id="gstage" class="hide">
+  <div id="gTop"><span id="gTimer">00:00</span><span id="gCount"></span></div>
+  <div id="gGrid" data-n="0"></div>
+  <button class="go hide" id="gSound">🔊 Tap to enable sound</button>
+  <div id="gCtrls">
+    <button class="cb" id="gMute" title="Mute">🎤</button>
+    <button class="cb" id="gCam" title="Camera">📷</button>
+    <button class="cb hide" id="gFlip" title="Flip camera">🔄</button>
+    <button class="cb end" id="gEnd" title="Leave call">📞</button>
+  </div>
+  <div id="gAudio"></div>
+</div>
 
 <div id="stage" class="hide">
   <video id="rvid" autoplay playsinline muted></video>
@@ -362,6 +395,257 @@ $("btnFs").onclick = () => {
   if(d.fullscreenElement) d.exitFullscreen(); else if(stage.requestFullscreen) stage.requestFullscreen().catch(()=>{});
 };
 
+/* ================= GROUP CALL (mesh, up to 4 people) ================= */
+const GMAX = 4;
+const G = { live:false, local:null, cam:null, facing:"user", peers:new Map(), members:[], hostDc:null, timers:[], timerInt:null, myName:"You", isHost:false, selfTile:null };
+
+function gInitial(n){ return ((n || "?").trim().charAt(0) || "?").toUpperCase(); }
+function gLayout(){ const n = $("gGrid").children.length; $("gGrid").dataset.n = n; $("gCount").textContent = n + "/" + GMAX; }
+function gMakeTile(name){
+  const t = document.createElement("div"); t.className = "tile";
+  t.innerHTML = '<video autoplay playsinline muted></video><div class="av"></div><div class="nm"></div>';
+  t.querySelector(".nm").textContent = name; t.querySelector(".av").textContent = gInitial(name);
+  $("gGrid").appendChild(t); gLayout(); return t;
+}
+function gEnsure(id, name){
+  let e = G.peers.get(id);
+  if(e){
+    if(name && e.name !== name){ e.name = name; e.tile.querySelector(".nm").textContent = name; e.tile.querySelector(".av").textContent = gInitial(name); }
+    return e;
+  }
+  e = { id, name: name || "Guest", tile: null, call: null, vin: null, vout: null, audio: null };
+  e.tile = gMakeTile(e.name); G.peers.set(id, e); return e;
+}
+function speakWatch(stream, tile){
+  try{
+    const ctx = ensureCtx(); if(!ctx) return;
+    const src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser(); an.fftSize = 256; src.connect(an);
+    const d = new Uint8Array(an.fftSize);
+    G.timers.push(setInterval(() => {
+      an.getByteTimeDomainData(d); let m = 0; for(const v of d) m = Math.max(m, Math.abs(v-128));
+      tile.classList.toggle("speaking", m > 14);
+    }, 150));
+  }catch(e){}
+}
+function gAttachAudio(e, stream){
+  if(!e.audio){ e.audio = document.createElement("audio"); e.audio.autoplay = true; e.audio.setAttribute("playsinline",""); $("gAudio").appendChild(e.audio); }
+  e.audio.srcObject = stream;
+  e.audio.play().catch(() => { $("gSound").classList.remove("hide"); });
+  speakWatch(stream, e.tile);
+}
+$("gSound").onclick = () => { ensureCtx(); G.peers.forEach(e => { if(e.audio) e.audio.play().catch(()=>{}); }); $("gSound").classList.add("hide"); };
+function gRemove(id){
+  const e = G.peers.get(id); if(!e) return;
+  G.peers.delete(id);
+  [e.call, e.vin, e.vout].forEach(c => { if(c){ c._ignore = true; try{ c.close(); }catch(x){} } });
+  if(e.tile) e.tile.remove();
+  if(e.audio) e.audio.remove();
+  gLayout();
+}
+function gSendVideo(e){
+  if(!G.cam || !peer) return;
+  if(e.vout){ try{ e.vout.close(); }catch(x){} }
+  e.vout = peer.call(e.id, G.cam, { metadata:{ kind:"gvideo", name:G.myName } });
+}
+function gHandleCall(c){
+  const kind = c.metadata && c.metadata.kind;
+  if(!G.live || !G.local){ try{ c.close(); }catch(x){} return; }
+  const id = c.peer;
+  if(!G.peers.has(id) && G.peers.size >= GMAX - 1){ try{ c.close(); }catch(x){} return; }
+  const e = gEnsure(id, c.metadata && c.metadata.name);
+  if(kind === "group"){
+    c.answer(G.local, { sdpTransform });
+    e.call = c;
+    c.on("stream", st => gAttachAudio(e, st));
+    c.on("close", () => { if(e.call === c && !c._ignore) gRemove(id); });
+    c.on("error", () => { if(e.call === c && !c._ignore) gRemove(id); });
+    if(G.cam) gSendVideo(e);
+  }else if(kind === "gvideo"){
+    c.answer();
+    e.vin = c;
+    const vid = e.tile.querySelector("video");
+    c.on("stream", st => { vid.srcObject = st; e.tile.classList.add("hasVid"); vid.play().catch(()=>{}); });
+    c.on("close", () => { if(e.vin === c){ e.vin = null; vid.srcObject = null; e.tile.classList.remove("hasVid"); } });
+  }else{ try{ c.close(); }catch(x){} }
+}
+function gCallPeer(id, name){
+  const old = G.peers.get(id); if(old && old.call) return;
+  const e = gEnsure(id, name);
+  const c = peer.call(id, G.local, { sdpTransform, metadata:{ kind:"group", name:G.myName } });
+  e.call = c;
+  c.on("stream", st => gAttachAudio(e, st));
+  c.on("close", () => { if(e.call === c && !c._ignore) gRemove(id); });
+  c.on("error", () => { if(e.call === c && !c._ignore) gRemove(id); });
+  if(G.cam) gSendVideo(e);
+}
+function gStart(){
+  G.live = true;
+  $("gGrid").innerHTML = ""; G.peers.clear();
+  G.selfTile = gMakeTile("You");
+  speakWatch(G.local, G.selfTile);
+  $("gstage").classList.remove("hide"); show("none");
+  const t0 = Date.now(); clearInterval(G.timerInt);
+  G.timerInt = setInterval(() => {
+    const sec = Math.floor((Date.now()-t0)/1000);
+    $("gTimer").textContent = String(Math.floor(sec/60)).padStart(2,"0") + ":" + String(sec%60).padStart(2,"0");
+  }, 500);
+  $("gMute").textContent = "🎤"; $("gMute").classList.remove("off");
+  keepAwake();
+}
+async function gStartCam(){
+  if(!G.live) return;
+  try{
+    G.cam = await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:G.facing, width:{ideal:960}, height:{ideal:720}, frameRate:{ideal:20, max:24} } });
+  }catch(e){ G.cam = null; return; }
+  const v = G.selfTile.querySelector("video");
+  v.srcObject = G.cam; v.style.transform = G.facing === "user" ? "scaleX(-1)" : "none"; v.play().catch(()=>{});
+  G.selfTile.classList.add("hasVid");
+  $("gCam").textContent = "🎥"; $("gCam").classList.add("off"); $("gFlip").classList.remove("hide");
+  G.peers.forEach(e => gSendVideo(e));
+}
+function gStopCam(){
+  if(G.cam){ G.cam.getTracks().forEach(t => t.stop()); G.cam = null; }
+  G.peers.forEach(e => { if(e.vout){ try{ e.vout.close(); }catch(x){} e.vout = null; } });
+  if(G.selfTile){ G.selfTile.classList.remove("hasVid"); G.selfTile.querySelector("video").srcObject = null; }
+  $("gCam").textContent = "📷"; $("gCam").classList.remove("off"); $("gFlip").classList.add("hide");
+}
+function gEnd(){
+  G.live = false;
+  clearInterval(G.timerInt); G.timers.forEach(clearInterval); G.timers = [];
+  Array.from(G.peers.keys()).forEach(gRemove);
+  gStopCam();
+  if(G.local){ G.local.getTracks().forEach(t => t.stop()); G.local = null; }
+  G.members.forEach(m => { try{ m.dc.close(); }catch(x){} }); G.members = [];
+  if(G.hostDc){ try{ G.hostDc.close(); }catch(x){} G.hostDc = null; }
+  $("gGrid").innerHTML = ""; gLayout(); $("gstage").classList.add("hide");
+  if(wakeLock){ try{ wakeLock.release(); }catch(x){} wakeLock = null; }
+  clearMeters();
+}
+$("gMute").onclick = () => {
+  if(!G.local) return;
+  const t = G.local.getAudioTracks()[0]; t.enabled = !t.enabled;
+  $("gMute").textContent = t.enabled ? "🎤" : "🔇"; $("gMute").classList.toggle("off", !t.enabled);
+};
+$("gCam").onclick = () => { G.cam ? gStopCam() : gStartCam(); };
+$("gFlip").onclick = async () => { G.facing = G.facing === "user" ? "environment" : "user"; gStopCam(); await gStartCam(); };
+$("gEnd").onclick = () => { if(G.isHost) hostGroupEnd("Group call ended"); else gGuestEnd("You left the call."); };
+
+/* ---- host side of the group ---- */
+function hostRingDone(){ incomingActive = false; stopRingtone(); ring(false); clearCallNotification(); }
+function hostAdmit(m){
+  const before = [{ id: peer.id, name: HOST_NAME }].concat(G.members.filter(x => x.live).map(x => ({ id:x.id, name:x.name })));
+  m.live = true;
+  try{ m.dc.send({ t:"go", peers:before }); }catch(e){}
+  G.members.filter(x => x.live && x !== m).forEach(x => { try{ x.dc.send({ t:"joined", id:m.id, name:m.name }); }catch(e){} });
+}
+function hostGroupJoin(dc, name){
+  const send = o => { try{ dc.send(o); }catch(e){} };
+  if(localStorage.getItem("tws_type") !== "group"){ send({ t:"nogroup" }); return; }
+  const exp = +localStorage.getItem("tws_exp") || 0;
+  if(exp && Date.now() > exp){ send({ t:"declined" }); return; }
+  if(G.members.some(m => m.dc === dc)) return;
+  if(G.members.length >= GMAX - 1){ send({ t:"full" }); setTimeout(() => { try{ dc.close(); }catch(e){} }, 500); return; }
+  const m = { id: dc.peer, name, dc, live:false };
+  G.members.push(m);
+  if(G.live){ hostAdmit(m); return; }
+  send({ t:"wait" });
+  if(!incomingActive) hostGroupRing();
+}
+function hostGroupRing(){
+  incomingActive = true;
+  setSub("Group call…"); ring(true); startRingtone(); showCallNotification(); show("vIncoming");
+  $("btnAnswer").onclick = async () => {
+    stopRingtone(); clearCallNotification();
+    G.local = await getMic();
+    if(!G.local){
+      G.members.forEach(m => { try{ m.dc.send({ t:"declined" }); }catch(e){} });
+      G.members = []; hostRingDone(); show("vShare"); return;
+    }
+    incomingActive = false; G.isHost = true; G.myName = HOST_NAME;
+    gStart();
+    G.members.slice().forEach(hostAdmit);
+  };
+  $("btnDecline").onclick = () => {
+    G.members.forEach(m => { try{ m.dc.send({ t:"declined" }); m.dc.close(); }catch(e){} });
+    G.members = []; hostRingDone(); setSub("Waiting for a call…"); show("vShare");
+  };
+}
+function hostGroupLeft(dc){
+  const i = G.members.findIndex(m => m.dc === dc); if(i < 0) return;
+  const m = G.members.splice(i, 1)[0];
+  if(G.live){ gRemove(m.id); }
+  else if(incomingActive && G.members.length === 0){ hostRingDone(); setSub("Missed call"); show("vShare"); }
+}
+function hostGroupEnd(msg){
+  gEnd(); G.isHost = false;
+  afterHostCall(msg);
+}
+
+/* ---- guest side of the group ---- */
+function gGuestMsg(msg){
+  if(!msg) return;
+  if(msg.t === "wait"){ setSub("Waiting for " + HOST_NAME + " to answer…"); }
+  else if(msg.t === "go"){
+    if(G.live) return;
+    clearTimeout(ringTimeout); clearTimeout(gRetry); clearTimeout(gAgain); ring(false);
+    gStart();
+    (msg.peers || []).forEach(p => gCallPeer(p.id, p.name));
+  }
+  else if(msg.t === "full"){ gGuestEnd("This call is full (maximum " + GMAX + " people)."); }
+  else if(msg.t === "declined"){ gGuestEnd(HOST_NAME + " is not available right now."); }
+  else if(msg.t === "nogroup"){ gGuestEnd("This link is not a group link."); }
+}
+function gGuestEnd(msg){
+  clearTimeout(ringTimeout); clearTimeout(gRetry); clearTimeout(gAgain);
+  gCancelled = true; ring(false); gEnd();
+  if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
+  setSub(msg); show("vGuest");
+  $("btnCall").classList.remove("hide"); $("btnCall").disabled = false; $("btnCall").textContent = "👥 Join again";
+  $("btnCancel").classList.add("hide"); $("gName").classList.remove("hide");
+}
+function guestGroupSetup(roomId){
+  $("title").textContent = "Group call with " + HOST_NAME;
+  setSub("Enter your name and tap Join (up to " + GMAX + " people)");
+  show("vGuest");
+  $("gName").classList.remove("hide"); $("gName").value = localStorage.getItem("tws_name") || "";
+  $("btnCall").textContent = "👥 Join call";
+
+  $("btnCancel").onclick = () => gGuestEnd("Cancelled.");
+  $("btnCall").onclick = async () => {
+    G.myName = ($("gName").value || "Guest").trim().slice(0, 20) || "Guest";
+    try{ localStorage.setItem("tws_name", G.myName); }catch(e){}
+    G.local = await getMic();
+    if(!G.local) return;
+    await iceReady;
+    gCancelled = false; G.isHost = false;
+    setSub("Joining…"); ring(true);
+    const topic = new URLSearchParams(location.search).get("n");
+    notifyHost(topic);
+    gAgain = setTimeout(() => { if(!gCancelled && !G.live) notifyHost(topic); }, 20000);
+    $("btnCall").classList.add("hide"); $("gName").classList.add("hide"); $("btnCancel").classList.remove("hide");
+
+    peer = newPeer(); remoteId = roomId;
+    peer.on("call", c => { const k = c.metadata && c.metadata.kind; if(k === "group" || k === "gvideo") gHandleCall(c); else c.close(); });
+    const dial = () => {
+      if(gCancelled || !peer || peer.destroyed) return;
+      const dc = peer.connect(roomId, { reliable:true });
+      G.hostDc = dc;
+      dc.on("open", () => { try{ dc.send({ t:"hello", name:G.myName }); }catch(e){} });
+      dc.on("data", gGuestMsg);
+    };
+    peer.on("open", dial);
+    ringTimeout = setTimeout(() => { if(!G.live) gGuestEnd(HOST_NAME + " didn't answer. Please try again later."); }, RING_TIMEOUT_MS);
+    peer.on("error", e => {
+      if(G.live) return;
+      if(e.type === "peer-unavailable" && !gCancelled){
+        setSub("Waiting for " + HOST_NAME + " to come online…");
+        gRetry = setTimeout(dial, 3000); return;
+      }
+      gGuestEnd("Connection problem. Please try again.");
+    });
+  };
+}
+
 /* ================= HOST (you) ================= */
 let linkActive = false, creating = false, incomingActive = false;
 
@@ -373,7 +657,9 @@ function modeText(){
 }
 function disableLink(msg){
   linkActive = false; creating = false; incomingActive = false;
-  ["tws_id","tws_mode","tws_exp"].forEach(k => localStorage.removeItem(k));
+  if(G.live){ gEnd(); G.isHost = false; }
+  G.members = [];
+  ["tws_id","tws_mode","tws_exp","tws_type"].forEach(k => localStorage.removeItem(k));
   stopRingtone(); ring(false); clearCallNotification();
   if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
   setSub(msg || "Link disabled. Create a new one."); show("vCreate");
@@ -381,7 +667,7 @@ function disableLink(msg){
 function hostWatchdog(){
   if(!linkActive) return;
   const exp = +localStorage.getItem("tws_exp") || 0;
-  if(exp && Date.now() > exp && !call && !incomingActive){ disableLink("Link expired. Create a new one."); return; }
+  if(exp && Date.now() > exp && !call && !incomingActive && !G.live){ disableLink("Link expired. Create a new one."); return; }
   if(peer && peer.disconnected && !peer.destroyed){ try{ peer.reconnect(); }catch(e){} }
   if((!peer || peer.destroyed) && !creating) createLink();
 }
@@ -400,6 +686,7 @@ function hostSetup(){
     const mode = $("selMode").value, hours = { "1h":1, "24h":24, "7d":168 }[mode];
     localStorage.setItem("tws_mode", mode === "once" ? "once" : (hours ? "timed" : "reuse"));
     if(hours) localStorage.setItem("tws_exp", String(Date.now() + hours*3600*1000)); else localStorage.removeItem("tws_exp");
+    localStorage.setItem("tws_type", $("selType").value);
     localStorage.removeItem("tws_id");                 // always a fresh link
     if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
     enableAlerts();                                    // user tap: unlock ring sound + ask notification permission
@@ -438,14 +725,21 @@ async function createLink(){
   p.on("open", () => {
     creating = false;
     $("topicBox").textContent = topic;
-    $("linkBox").textContent = location.origin + location.pathname + "?r=" + id + "&n=" + topic;
-    $("modeNote").textContent = modeText();
+    const grp = localStorage.getItem("tws_type") === "group";
+    $("linkBox").textContent = location.origin + location.pathname + "?r=" + id + "&n=" + topic + (grp ? "&g=1" : "");
+    $("modeNote").textContent = (grp ? "Group call, up to " + GMAX + " people. " : "") + modeText();
     $("btnAlerts").classList.toggle("hide", alertsReady);
-    if(!call && !incomingActive){ setSub("Waiting for a call…"); show("vShare"); }
+    if(!call && !incomingActive && !G.live){ setSub("Waiting for a call…"); show("vShare"); }
   });
 
+  p.on("connection", dc => {
+    dc.on("data", msg => { if(msg && msg.t === "hello") hostGroupJoin(dc, String(msg.name || "Guest").slice(0, 20)); });
+    dc.on("close", () => hostGroupLeft(dc));
+  });
   p.on("call", incoming => {
-    if(incoming.metadata && incoming.metadata.kind === "video"){ acceptVideo(incoming); return; }
+    const kind = incoming.metadata && incoming.metadata.kind;
+    if(kind === "group" || kind === "gvideo"){ gHandleCall(incoming); return; }
+    if(kind === "video"){ acceptVideo(incoming); return; }
     if(call || incomingActive){ incoming.close(); return; }              // already busy
     const exp = +localStorage.getItem("tws_exp") || 0;
     if(exp && Date.now() > exp){ incoming.close(); disableLink("Link expired. Create a new one."); return; }
@@ -488,6 +782,7 @@ function notifyHost(topic){
   }catch(e){}
 }
 function guestSetup(roomId){
+  if(isGroup){ guestGroupSetup(roomId); return; }
   $("title").textContent = "Call " + HOST_NAME;
   setSub("Tap the button to start an audio call");
   show("vGuest");
@@ -544,6 +839,7 @@ function afterGuestCall(msg){
 
 /* ================= INIT ================= */
 const room = new URLSearchParams(location.search).get("r");
+const isGroup = new URLSearchParams(location.search).get("g") === "1";
 if(!navigator.mediaDevices || !window.Peer){ setSub("This browser is not supported or you are offline."); }
 else if(room) guestSetup(room);
 else hostSetup();

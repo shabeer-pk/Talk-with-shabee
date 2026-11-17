@@ -31,6 +31,25 @@
   .bar { flex:1; height:8px; background:#0f172a; border-radius:6px; overflow:hidden; }
   .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width .1s; }
   #meters { margin-bottom:14px; }
+  #stage { position:fixed; inset:0; z-index:50; background:radial-gradient(circle at 50% 30%, #1e3a5f 0%, #020617 70%); overflow:hidden; }
+  #stage video { background:#000; }
+  #rvid { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; }
+  #stage.hasRemote #rvid { display:block; }
+  #noVid { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
+  #noVid .avatar { margin:0; }
+  #stName { font-size:22px; font-weight:600; }
+  #stage.hasRemote #noVid { display:none; }
+  #lvid { position:absolute; right:14px; top:max(64px, calc(env(safe-area-inset-top) + 56px)); width:28vw; max-width:150px; aspect-ratio:3/4; object-fit:cover;
+          border-radius:14px; border:2px solid rgba(255,255,255,.35); display:none; box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  #stage.hasLocal #lvid { display:block; }
+  #topbar { position:absolute; top:max(14px, env(safe-area-inset-top)); left:0; right:0; text-align:center; text-shadow:0 1px 6px rgba(0,0,0,.7); }
+  #topbar .timer { font-size:22px; margin:0; }
+  #topbar .mini { display:flex; justify-content:center; gap:8px; margin-top:6px; }
+  #topbar .mini .bar { width:56px; height:5px; }
+  #ctrls { position:absolute; bottom:max(26px, env(safe-area-inset-bottom)); left:0; right:0; display:flex; justify-content:center; gap:14px; }
+  .cb { width:60px; height:60px; border-radius:50%; margin:0; padding:0; font-size:22px; background:rgba(51,65,85,.85); backdrop-filter:blur(6px); }
+  .cb.off { background:#fff; color:#0f172a; }
+  .cb.end { background:var(--bad); }
 </style>
 </head>
 <body>
@@ -74,16 +93,25 @@
     </div>
   </div>
 
-  <!-- IN CALL -->
-  <div id="vCall" class="hide">
-    <div class="timer" id="timer">00:00</div>
-    <div class="row">
-      <button class="sec" id="btnMute">🎤 Mute</button>
-      <button class="end" id="btnEnd">End</button>
-    </div>
-  </div>
 </div>
 <audio id="remote" autoplay playsinline></audio>
+
+<div id="stage" class="hide">
+  <video id="rvid" autoplay playsinline muted></video>
+  <div id="noVid"><div class="avatar">S</div><div id="stName"></div></div>
+  <video id="lvid" autoplay playsinline muted></video>
+  <div id="topbar">
+    <div class="timer" id="timer">00:00</div>
+    <div class="mini"><div class="bar"><i id="mLocal2"></i></div><div class="bar"><i id="mRemote2"></i></div></div>
+  </div>
+  <div id="ctrls">
+    <button class="cb" id="btnMute" title="Mute">🎤</button>
+    <button class="cb" id="btnCam" title="Camera">📷</button>
+    <button class="cb hide" id="btnFlip" title="Flip camera">🔄</button>
+    <button class="cb" id="btnFs" title="Full screen">⛶</button>
+    <button class="cb end" id="btnEnd" title="End call">📞</button>
+  </div>
+</div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
@@ -102,11 +130,12 @@ const RING_TIMEOUT_MS = 60000;
 /* ========================================== */
 
 const $ = id => document.getElementById(id);
-const views = ["vCreate","vShare","vGuest","vIncoming","vCall"];
+const views = ["vCreate","vShare","vGuest","vIncoming"];
 function show(v){ views.forEach(x => $(x).classList.toggle("hide", x !== v)); }
 function setSub(t){ $("sub").textContent = t; }
 function ring(on){ $("av").classList.toggle("ring", !!on); }
 
+let remoteId = null, camStream = null, vOut = null, vIn = null, facing = "user";
 let peer = null, call = null, localStream = null, timerInt = null, wakeLock = null, ringTone = null, ringTimeout = null;
 
 const AUDIO = { audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 }, video:false };
@@ -162,18 +191,20 @@ function bindCall(c, onEnd){
     clearTimeout(ringTimeout);
     $("remote").srcObject = stream;
     $("remote").volume = 1; $("remote").muted = false;
-    $("meters").classList.remove("hide"); meter(stream, $("mRemote")); watchConn(c);
+    $("meters").classList.remove("hide"); meter(stream, $("mRemote")); meter(stream, $("mRemote2")); watchConn(c);
     $("remote").play().catch(() => { $("btnSound").classList.remove("hide"); });
     ring(false); stopRingtone();
-    setSub("Connected"); show("vCall"); startTimer(); keepAwake();
-    $("btnMute").textContent = "🎤 Mute";
+    setSub("Connected"); show("none"); $("stage").classList.remove("hide");
+    $("stName").textContent = room ? HOST_NAME : "Caller";
+    startTimer(); keepAwake();
+    $("btnMute").textContent = "🎤"; $("btnMute").classList.remove("off");
   });
   c.on("close", () => cleanupCall(onEnd, "Call ended"));
   c.on("error", () => cleanupCall(onEnd, "Call failed"));
 }
 
 function cleanupCall(onEnd, msg){
-  clearTimeout(ringTimeout); clearInterval(timerInt); stopRingtone(); ring(false); clearMeters();
+  clearTimeout(ringTimeout); clearInterval(timerInt); stopRingtone(); ring(false); clearMeters(); endVideo(); $("stage").classList.add("hide");
   if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
   $("remote").srcObject = null;
   if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLock=null; }
@@ -197,7 +228,7 @@ function meter(stream, el){
     }, 100));
   }catch(e){}
 }
-function clearMeters(){ meterTimers.forEach(clearInterval); meterTimers = []; $("meters").classList.add("hide"); $("btnSound").classList.add("hide"); $("mLocal").style.width = $("mRemote").style.width = "0"; $("conn").textContent = ""; }
+function clearMeters(){ meterTimers.forEach(clearInterval); meterTimers = []; $("meters").classList.add("hide"); $("btnSound").classList.add("hide"); $("mLocal").style.width = $("mRemote").style.width = $("mLocal2").style.width = $("mRemote2").style.width = "0"; $("conn").textContent = ""; }
 function watchConn(c){
   try{
     const pc = c.peerConnection, upd = () => { $("conn").textContent = "Network: " + pc.iceConnectionState; };
@@ -210,7 +241,7 @@ async function getMic(){
   ensureCtx();
   try{
     const st = await navigator.mediaDevices.getUserMedia(AUDIO);
-    $("meters").classList.remove("hide"); meter(st, $("mLocal"));
+    $("meters").classList.remove("hide"); meter(st, $("mLocal")); meter(st, $("mLocal2"));
     return st;
   }catch(e){
     const n = e && e.name;
@@ -225,9 +256,53 @@ async function getMic(){
 $("btnMute").onclick = () => {
   if(!localStream) return;
   const t = localStream.getAudioTracks()[0]; t.enabled = !t.enabled;
-  $("btnMute").textContent = t.enabled ? "🎤 Mute" : "🔇 Unmute";
+  $("btnMute").textContent = t.enabled ? "🎤" : "🔇"; $("btnMute").classList.toggle("off", !t.enabled);
 };
 $("btnEnd").onclick = () => { if(call) call.close(); };
+
+/* ================= VIDEO (optional, camera on demand) ================= */
+const stage = $("stage");
+function acceptVideo(inc){
+  if(vIn){ try{ vIn.close(); }catch(e){} }
+  vIn = inc;
+  inc.answer();                                   // receive only
+  inc.on("stream", st => { $("rvid").srcObject = st; $("rvid").play().catch(()=>{}); stage.classList.add("hasRemote"); });
+  inc.on("close", () => { if(vIn === inc){ vIn = null; $("rvid").srcObject = null; stage.classList.remove("hasRemote"); } });
+  inc.on("error", () => { stage.classList.remove("hasRemote"); });
+}
+async function startCam(){
+  if(!peer || !remoteId || !call) return;
+  try{
+    camStream = await navigator.mediaDevices.getUserMedia({ audio:false,
+      video:{ facingMode:facing, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:24, max:30} } });
+  }catch(e){
+    const n = e && e.name;
+    $("stName").textContent = n === "NotAllowedError" ? "Camera is blocked - allow it in site settings" : "Could not start camera";
+    camStream = null; return;
+  }
+  $("lvid").srcObject = camStream;
+  $("lvid").style.transform = facing === "user" ? "scaleX(-1)" : "none";
+  stage.classList.add("hasLocal");
+  $("btnCam").textContent = "🎥"; $("btnCam").classList.add("off"); $("btnFlip").classList.remove("hide");
+  vOut = peer.call(remoteId, camStream, { metadata:{ kind:"video" } });
+}
+function stopCam(){
+  if(camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  if(vOut){ try{ vOut.close(); }catch(e){} vOut = null; }
+  $("lvid").srcObject = null; stage.classList.remove("hasLocal");
+  $("btnCam").textContent = "📷"; $("btnCam").classList.remove("off"); $("btnFlip").classList.add("hide");
+}
+function endVideo(){
+  stopCam();
+  if(vIn){ try{ vIn.close(); }catch(e){} vIn = null; }
+  $("rvid").srcObject = null; stage.classList.remove("hasRemote");
+}
+$("btnCam").onclick = () => { camStream ? stopCam() : startCam(); };
+$("btnFlip").onclick = async () => { facing = facing === "user" ? "environment" : "user"; stopCam(); await startCam(); };
+$("btnFs").onclick = () => {
+  const d = document;
+  if(d.fullscreenElement) d.exitFullscreen(); else if(stage.requestFullscreen) stage.requestFullscreen().catch(()=>{});
+};
 
 /* ================= HOST (you) ================= */
 function hostSetup(){
@@ -268,7 +343,9 @@ function createLink(forceNew){
     show("vShare");
   });
   peer.on("call", incoming => {
+    if(incoming.metadata && incoming.metadata.kind === "video"){ acceptVideo(incoming); return; }
     if(call){ incoming.close(); return; }            // already in a call
+    remoteId = incoming.peer;
     setSub("Incoming call…"); ring(true); startRingtone(); show("vIncoming");
     $("btnAnswer").onclick = async () => {
       stopRingtone();
@@ -307,7 +384,8 @@ function guestSetup(roomId){
     setSub("Calling " + HOST_NAME + "…"); ring(true);
     notifyHost(new URLSearchParams(location.search).get("n"));
     $("btnCall").disabled = true;
-    peer = newPeer();
+    peer = newPeer(); remoteId = roomId;
+    peer.on("call", inc => { if(inc.metadata && inc.metadata.kind === "video") acceptVideo(inc); else inc.close(); });
     peer.on("open", () => {
       const c = peer.call(roomId, localStream, { sdpTransform });
       bindCall(c, afterGuestCall);

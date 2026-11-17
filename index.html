@@ -1170,8 +1170,8 @@ function setupLeaveMessage(){
 
 /* ================= ADMIN LOGIN (locks the host page, callers' links stay open) ================= */
 // Run the page once without these values: it shows a setup screen that generates both lines for you.
-const ADMIN_SALT = "";
-const ADMIN_HASH = "";
+const ADMIN_SALT = ""678fe081259456a09fb4260547c4476a";
+const ADMIN_HASH = ""648c7360a9bb231a9fea6049afbad5a5864a1381530eaaf553f0ae7a375985a4";
 async function deriveHash(user, pass, saltHex){
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", enc.encode(user.trim().toLowerCase() + ":" + pass), "PBKDF2", false, ["deriveBits"]);

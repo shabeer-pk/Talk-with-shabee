@@ -194,8 +194,19 @@
   .hi .hr { text-align:right; font-size:12.5px; color:var(--mut); flex:none; }
   .hi .hr em { font-style:normal; font-weight:600; color:var(--txt); }
   .hi .hr em.miss { color:var(--bad); }
+  #toast { position:fixed; left:50%; top:max(16px, env(safe-area-inset-top)); transform:translateX(-50%); z-index:200; max-width:88vw; padding:10px 18px; border-radius:18px; background:rgba(0,0,0,.82); border:1px solid var(--line); font-size:14px; line-height:1.4; text-align:center; }
   #reconn { position:absolute; top:max(70px, calc(env(safe-area-inset-top) + 62px)); left:50%; transform:translateX(-50%); z-index:3; padding:6px 16px; border-radius:20px;
             background:rgba(0,0,0,.55); border:1px solid var(--line); font-size:13.5px; white-space:nowrap; -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); }
+
+  /* ===== lighter rendering during calls (live blur over moving video and animated blurred blobs are what heat phones) ===== */
+  body:has(#stage:not(.hide)) .bg, body:has(#gstage:not(.hide)) .bg,
+  body:has(#stage:not(.hide)) .card, body:has(#gstage:not(.hide)) .card { display:none !important; }
+  .cb { -webkit-backdrop-filter:none; backdrop-filter:none;
+        background:radial-gradient(circle at 30% 20%, rgba(255,255,255,.30), rgba(255,255,255,.06) 55%), rgba(22,28,42,.58); }
+  .tile .nm { -webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(0,0,0,.55); }
+  #chat { -webkit-backdrop-filter:none; backdrop-filter:none; }
+  #reactBar { -webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(24,30,44,.82); }
+  #reconn { -webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(0,0,0,.7); }
   @media (max-width:360px) { .cb { width:50px; height:50px; } #ctrls, #gCtrls { gap:6px; } }
 </style>
 <script>
@@ -376,6 +387,7 @@ function applyTheme(k){
 </div>
 
 <!-- chat sheet, reactions -->
+<div id="toast" class="hide" role="status"></div>
 <div id="floats" aria-hidden="true"></div>
 <div id="reactBar" class="hide"></div>
 <section id="chat" class="hide" aria-label="Chat">
@@ -457,6 +469,26 @@ document.querySelectorAll("[data-i]").forEach(el => {
 const views = ["vLogin","vSetup","vCreate","vShare","vHist","vGuest","vIncoming"];
 function show(v){ views.forEach(x => $(x).classList.toggle("hide", x !== v)); }
 function setSub(t){ $("sub").textContent = t; }
+let toastT = null;
+function toast(t, ms){ const el = $("toast"); el.textContent = t; el.classList.remove("hide"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add("hide"), ms || 5000); }
+// camera: ask for a nice picture, but fall back to simpler requests if the phone cannot satisfy it (never fail just because of a quality hint)
+async function getCam(facingMode, w, h, fps){
+  const tries = [
+    { audio:false, video:{ facingMode, width:{ ideal:w }, height:{ ideal:h }, frameRate:{ ideal:fps } } },
+    { audio:false, video:{ facingMode } },
+    { audio:false, video:true }
+  ];
+  let last;
+  for(const c of tries){
+    try{ return await navigator.mediaDevices.getUserMedia(c); }
+    catch(e){ last = e; if(e && (e.name === "NotAllowedError" || e.name === "SecurityError")) break; }
+  }
+  throw last;
+}
+function camError(e){
+  const n = e && e.name;
+  toast(n === "NotAllowedError" || n === "SecurityError" ? "Camera is blocked. Allow it in the browser's site settings." : n === "NotReadableError" ? "Camera is in use by another app." : "Could not start the camera (" + n + ").", 6000);
+}
 function ring(on){ $("av").classList.toggle("ring", !!on); }
 
 let remoteId = null, camStream = null, vOut = null, vIn = null, facing = "user";
@@ -486,6 +518,17 @@ function preferH264(sdp){
     lines[mi] = head.concat(ordered).join(" ");
     return lines.join("\r\n");
   }catch(e){ return sdp; }
+}
+function capVideo(c, bps, fps){
+  const go = () => { try{
+    c.peerConnection.getSenders().forEach(sn => {
+      if(!sn.track || sn.track.kind !== "video") return;
+      const p = sn.getParameters(); if(!p.encodings || !p.encodings.length) p.encodings = [{}];
+      p.encodings[0].maxBitrate = bps; p.encodings[0].maxFramerate = fps;
+      sn.setParameters(p).catch(() => {});
+    });
+  }catch(e){} };
+  setTimeout(go, 1200); setTimeout(go, 5000);
 }
 const GROUP_VIDEO = { width:640, height:480, fps:24 };   // group tiles are small, so 480p looks the same but costs far less heat (raise to 1280x720 if you prefer)
 
@@ -628,7 +671,7 @@ function finishRejoin(c2, st, onEnd){
   $("remote").srcObject = st; $("remote").play().catch(() => { $("btnSound").classList.remove("hide"); });
   meter(st, $("mRemote")); meter(st, $("mRemote2"));
   if(room && !isGroup){ CH.dc = null; openGuestChat(); }
-  if(camStream && peer && remoteId){ if(vOut){ try{ vOut.close(); }catch(e){} } vOut = peer.call(remoteId, camStream, { metadata:{ kind:"video" }, sdpTransform: preferH264 }); }
+  if(camStream && peer && remoteId){ if(vOut){ try{ vOut.close(); }catch(e){} } vOut = peer.call(remoteId, camStream, { metadata:{ kind:"video" }, sdpTransform: preferH264 }); capVideo(vOut, 1500000, 24); }
 }
 
 function cleanupCall(onEnd, msg){
@@ -654,7 +697,7 @@ function meter(stream, el){
     meterTimers.push(setInterval(() => {
       an.getByteTimeDomainData(d); let m = 0; for(const v of d) m = Math.max(m, Math.abs(v-128));
       el.style.width = Math.min(100, m*2) + "%";
-    }, 100));
+    }, 250));
   }catch(e){}
 }
 function clearMeters(){ meterTimers.forEach(clearInterval); meterTimers = []; $("meters").classList.add("hide"); $("btnSound").classList.add("hide"); $("mLocal").style.width = $("mRemote").style.width = $("mLocal2").style.width = $("mRemote2").style.width = "0"; $("conn").textContent = ""; }
@@ -669,6 +712,7 @@ function watchConn(c){
     pc.addEventListener("iceconnectionstatechange", upd); upd();
   }catch(e){}
 }
+$("stage").addEventListener("click", () => { if($("remote").paused){ ensureCtx(); $("remote").play().catch(() => {}); } });
 $("btnSound").onclick = () => { ensureCtx(); $("remote").play().then(() => $("btnSound").classList.add("hide")).catch(()=>{}); };
 
 async function getMic(){
@@ -705,28 +749,42 @@ function acceptVideo(inc){
   if(vIn){ try{ vIn.close(); }catch(e){} }
   vIn = inc;
   inc.answer();                                   // receive only
-  inc.on("stream", st => { $("rvid").srcObject = st; $("rvid").play().catch(()=>{}); stage.classList.add("hasRemote"); });
+  inc.on("stream", st => { $("rvid").srcObject = st; $("rvid").play().catch(()=>{}); stage.classList.add("hasRemote"); if(!G.live) netSend({ t:"vok" }); });
   inc.on("close", () => { if(vIn === inc){ vIn = null; $("rvid").srcObject = null; stage.classList.remove("hasRemote"); } });
   inc.on("error", () => { stage.classList.remove("hasRemote"); });
 }
 async function startCam(){
   if(!peer || !remoteId || !call) return;
   try{
-    camStream = await navigator.mediaDevices.getUserMedia({ audio:false,
-      video:{ facingMode:facing, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30, max:30} } });
+    camStream = await getCam(facing, 1280, 720, 24);
     try{ camStream.getVideoTracks()[0].contentHint = "motion"; }catch(x){}
-  }catch(e){
-    const n = e && e.name;
-    $("stName").textContent = n === "NotAllowedError" ? "Camera is blocked - allow it in site settings" : "Could not start camera";
-    camStream = null; return;
-  }
+  }catch(e){ camStream = null; camError(e); return; }
   $("lvid").srcObject = camStream;
   $("lvid").style.transform = facing === "user" ? "scaleX(-1)" : "none";
   stage.classList.add("hasLocal");
   setIc($("btnCam"), "video"); $("btnCam").classList.add("off"); $("btnFlip").classList.remove("hide");
   vOut = peer.call(remoteId, camStream, { metadata:{ kind:"video" }, sdpTransform: preferH264 });
+  capVideo(vOut, 1500000, 24);
+  watchVideoAck();
+}
+// the other side confirms (over the chat channel) when it really receives our video; if not, we call again
+let vAck = false, vTry = 0, vTimer = null;
+function watchVideoAck(){
+  vAck = false; vTry = 0; clearTimeout(vTimer);
+  const check = () => {
+    if(!camStream || vAck || !call) return;
+    if(!(CH.dc && CH.dc.open)) return;                 // no way to get a confirmation, so don't guess
+    if(vTry >= 2){ toast("Your video is not reaching them yet. Try turning the camera off and on."); return; }
+    vTry++;
+    if(vOut){ try{ vOut.close(); }catch(e){} }
+    vOut = peer.call(remoteId, camStream, { metadata:{ kind:"video" }, sdpTransform: preferH264 });
+    capVideo(vOut, 1500000, 24);
+    vTimer = setTimeout(check, 7000);
+  };
+  vTimer = setTimeout(check, 7000);
 }
 function stopCam(){
+  clearTimeout(vTimer);
   if(camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
   if(vOut){ try{ vOut.close(); }catch(e){} vOut = null; }
   $("lvid").srcObject = null; stage.classList.remove("hasLocal");
@@ -770,7 +828,7 @@ function speakWatch(stream, tile){
     G.timers.push(setInterval(() => {
       an.getByteTimeDomainData(d); let m = 0; for(const v of d) m = Math.max(m, Math.abs(v-128));
       tile.classList.toggle("speaking", m > 14);
-    }, 150));
+    }, 300));
   }catch(e){}
 }
 function gAttachAudio(e, stream){
@@ -792,6 +850,7 @@ function gSendVideo(e){
   if(!G.cam || !peer) return;
   if(e.vout){ try{ e.vout.close(); }catch(x){} }
   e.vout = peer.call(e.id, G.cam, { metadata:{ kind:"gvideo", name:G.myName }, sdpTransform: preferH264 });
+  capVideo(e.vout, 700000, 24);
 }
 function gHandleCall(c){
   const kind = c.metadata && c.metadata.kind;
@@ -841,9 +900,9 @@ function gStart(){
 async function gStartCam(){
   if(!G.live) return;
   try{
-    G.cam = await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:G.facing, width:{ideal:GROUP_VIDEO.width}, height:{ideal:GROUP_VIDEO.height}, frameRate:{ideal:GROUP_VIDEO.fps, max:GROUP_VIDEO.fps} } });
+    G.cam = await getCam(G.facing, GROUP_VIDEO.width, GROUP_VIDEO.height, GROUP_VIDEO.fps);
     try{ G.cam.getVideoTracks()[0].contentHint = "motion"; }catch(x){}
-  }catch(e){ G.cam = null; return; }
+  }catch(e){ G.cam = null; camError(e); return; }
   const v = G.selfTile.querySelector("video");
   v.srcObject = G.cam; v.style.transform = G.facing === "user" ? "scaleX(-1)" : "none"; v.play().catch(()=>{});
   G.selfTile.classList.add("hasVid");
@@ -1052,6 +1111,7 @@ function sendReact(emoji){
 }
 function onNet(msg, fromDc){
   if(!msg) return;
+  if(msg.t === "vok"){ vAck = true; return; }
   if(msg.t === "bye" && !G.live){
     peerBye = true;
     if(rejoining){ const f = rejoinOnEnd; endRejoin(); cleanupCall(f || (() => {}), "Call ended"); }
@@ -1110,8 +1170,8 @@ function setupLeaveMessage(){
 
 /* ================= ADMIN LOGIN (locks the host page, callers' links stay open) ================= */
 // Run the page once without these values: it shows a setup screen that generates both lines for you.
-const ADMIN_SALT = "937fef9601c94c385016fe1ce632d0c2";
-const ADMIN_HASH = "dd1b4576309e049c6d2f8c4aa117bf3a397522e52ae5ac696289a5a56961dc96";
+const ADMIN_SALT = "";
+const ADMIN_HASH = "";
 async function deriveHash(user, pass, saltHex){
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", enc.encode(user.trim().toLowerCase() + ":" + pass), "PBKDF2", false, ["deriveBits"]);

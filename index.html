@@ -26,6 +26,11 @@
   .timer { font-size:34px; font-variant-numeric:tabular-nums; margin:4px 0 18px; }
   .hide { display:none !important; }
   .note { color:var(--mut); font-size:12px; margin-top:16px; }
+  .m { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--mut); margin:6px 0; text-align:left; }
+  .m span { width:72px; flex:none; }
+  .bar { flex:1; height:8px; background:#0f172a; border-radius:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width .1s; }
+  #meters { margin-bottom:14px; }
 </style>
 </head>
 <body>
@@ -33,6 +38,12 @@
   <div id="av" class="avatar">S</div>
   <h1 id="title">Talk with Shebi</h1>
   <div id="sub" class="sub"></div>
+  <div id="meters" class="hide">
+    <div class="m"><span>🎤 You</span><div class="bar"><i id="mLocal"></i></div></div>
+    <div class="m"><span>🔊 Them</span><div class="bar"><i id="mRemote"></i></div></div>
+    <div class="note" id="conn" style="margin-top:6px"></div>
+    <button class="go hide" id="btnSound">🔊 Tap to enable sound</button>
+  </div>
 
   <!-- HOST: create link -->
   <div id="vCreate" class="hide">
@@ -146,11 +157,13 @@ function startTimer(){
 async function keepAwake(){ try{ wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
 
 function bindCall(c, onEnd){
-  call = c;
+  call = c; watchConn(c);
   c.on("stream", stream => {
     clearTimeout(ringTimeout);
     $("remote").srcObject = stream;
-    $("remote").play().catch(()=>{});
+    $("remote").volume = 1; $("remote").muted = false;
+    $("meters").classList.remove("hide"); meter(stream, $("mRemote")); watchConn(c);
+    $("remote").play().catch(() => { $("btnSound").classList.remove("hide"); });
     ring(false); stopRingtone();
     setSub("Connected"); show("vCall"); startTimer(); keepAwake();
     $("btnMute").textContent = "🎤 Mute";
@@ -160,7 +173,7 @@ function bindCall(c, onEnd){
 }
 
 function cleanupCall(onEnd, msg){
-  clearTimeout(ringTimeout); clearInterval(timerInt); stopRingtone(); ring(false);
+  clearTimeout(ringTimeout); clearInterval(timerInt); stopRingtone(); ring(false); clearMeters();
   if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
   $("remote").srcObject = null;
   if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLock=null; }
@@ -168,9 +181,45 @@ function cleanupCall(onEnd, msg){
   onEnd(msg);
 }
 
+let actx = null, meterTimers = [];
+function ensureCtx(){
+  try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch(e){}
+  return actx;
+}
+function meter(stream, el){
+  try{
+    const ctx = ensureCtx(); if(!ctx) return;
+    const src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser(); an.fftSize = 256; src.connect(an);
+    const d = new Uint8Array(an.fftSize);
+    meterTimers.push(setInterval(() => {
+      an.getByteTimeDomainData(d); let m = 0; for(const v of d) m = Math.max(m, Math.abs(v-128));
+      el.style.width = Math.min(100, m*2) + "%";
+    }, 100));
+  }catch(e){}
+}
+function clearMeters(){ meterTimers.forEach(clearInterval); meterTimers = []; $("meters").classList.add("hide"); $("btnSound").classList.add("hide"); $("mLocal").style.width = $("mRemote").style.width = "0"; $("conn").textContent = ""; }
+function watchConn(c){
+  try{
+    const pc = c.peerConnection, upd = () => { $("conn").textContent = "Network: " + pc.iceConnectionState; };
+    pc.addEventListener("iceconnectionstatechange", upd); upd();
+  }catch(e){}
+}
+$("btnSound").onclick = () => { ensureCtx(); $("remote").play().then(() => $("btnSound").classList.add("hide")).catch(()=>{}); };
+
 async function getMic(){
-  try{ return await navigator.mediaDevices.getUserMedia(AUDIO); }
-  catch(e){ setSub("Microphone permission is needed. Please allow it and try again."); return null; }
+  ensureCtx();
+  try{
+    const st = await navigator.mediaDevices.getUserMedia(AUDIO);
+    $("meters").classList.remove("hide"); meter(st, $("mLocal"));
+    return st;
+  }catch(e){
+    const n = e && e.name;
+    if(n === "NotAllowedError" || n === "SecurityError") setSub("Microphone is blocked. Tap the lock icon next to the address, allow Microphone, then reload.");
+    else if(n === "NotFoundError") setSub("No microphone found on this device.");
+    else if(n === "NotReadableError") setSub("Microphone is in use by another app or tab. Close it and try again.");
+    else setSub("Could not start microphone (" + n + ").");
+    return null;
+  }
 }
 
 $("btnMute").onclick = () => {
